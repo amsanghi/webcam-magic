@@ -48,6 +48,7 @@ function detectLocal(dt) {
 // =====================================================================
 const edges = {};
 function edge(key, cond, fn) { if (cond && !edges[key]) fn(); edges[key] = cond; }
+const squishTarget = [0, 0];
 
 const FACE_SMILE = ["✨", "⭐", "💫", "🌟", "🌸"];
 
@@ -61,6 +62,15 @@ function sideEffects(g, side, dt) {
   FX.setVignette(side, !!g.two.frame);
   FX.setSpotlight(side, P.snap && g.palm ? g.palm : null);
   FX.setConcert(side, P.rockOn);
+
+  // 🤏 cheek-squish: two hands hugging the face → squeeze the feed
+  let squishing = false;
+  if (F.nose && g.hands && g.hands.length >= 2) {
+    const near = g.hands.filter((h) => Math.abs(h.x - F.nose.x) < 0.28 && h.y > F.nose.y - 0.18 && h.y < F.nose.y + 0.25);
+    squishing = near.length >= 2;
+  }
+  squishTarget[side] = squishing ? 1 : 0;
+  edge("squish" + side, squishing, () => { FX.banner(halfX, H * 0.22, "squiish~ 😆"); FX.Sound.boing(); FX.burst(halfX, H * 0.4, ["😆", "💕"], 6, 160); });
 
   // ---- continuous ----
   if (F.smile > T.smile) {
@@ -226,6 +236,22 @@ function handleFreeNet(m) {
   if (m.t === "fog") { FX.setFog(0, true); fogTime = 3; }
   else if (m.t === "toss") throws.push({ x: MID - 20, y: (m.yN || 0.5) * H, vx: -300, vy: -120, ch: m.ch || "💖", s: 46 });
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
+  else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
+}
+function fireConfetti() { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); FX.Sound.chime(); net.send({ t: "confetti" }); }
+
+// 💑 days-together counter
+function refreshAnniv() {
+  const el = $("anniv"); if (!el) return;
+  let d = null; try { d = localStorage.getItem("wm_anniv"); } catch (_) {}
+  if (!d) { el.textContent = "💑 set date"; return; }
+  const days = Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5));
+  el.textContent = `💑 ${days} days`;
+}
+function setAnniv() {
+  const cur = (() => { try { return localStorage.getItem("wm_anniv") || ""; } catch (_) { return ""; } })();
+  const v = prompt("Your anniversary / first date (YYYY-MM-DD):", cur);
+  if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) { try { localStorage.setItem("wm_anniv", v.trim()); } catch (_) {} refreshAnniv(); }
 }
 
 // 💌 sweet-nothings generator
@@ -293,9 +319,11 @@ function stepBeat() {
 // =====================================================================
 //  RENDER
 // =====================================================================
+const squish = [0, 0];            // cheek-squish amount per side (eased)
 function drawFeed(video, side, has) {
   ctx.save();
   ctx.beginPath(); ctx.rect(side * MID, 0, MID, H); ctx.clip();
+  if (squish[side] > 0.01) { const cx = side * MID + MID / 2; ctx.translate(cx, 0); ctx.scale(1 - 0.28 * squish[side], 1 + 0.12 * squish[side]); ctx.translate(-cx, 0); }
   if (has && video.readyState >= 2) {
     if (side === 0) { ctx.translate(MID, 0); ctx.scale(-1, 1); }   // local: selfie mirror
     const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
@@ -326,6 +354,7 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; frame++;
 
   detectLocal(dt);
+  squish[0] += (squishTarget[0] - squish[0]) * 0.25; squish[1] += (squishTarget[1] - squish[1]) * 0.25;
   if (fogTime > 0) { fogTime -= dt; if (localG.pinch.active) { const p = toCanvas(localG.pinch, 0); FX.wipeFog(0, p.x / MID, p.y / H); } else if (localG.palm) FX.wipeFog(0, localG.palm.x, localG.palm.y); if (fogTime <= 0) FX.setFog(0, false); }
 
   const sh = FX.getShake();
@@ -342,6 +371,7 @@ function loop() {
     if (inCall && remoteG.present) sideEffects(remoteG, 1, dt);
     coupleEffects(dt); tossUpdate(dt);
   } else {
+    squishTarget[0] = squishTarget[1] = 0;
     games.update(dt, localG, inCall ? remoteG : nullDummy());
   }
 
@@ -442,7 +472,7 @@ async function boot(callMode) {
   try {
     await initModels();
     const stream = await startCamera();
-    initBeat(stream); loadStreak(); buildDebug();
+    initBeat(stream); loadStreak(); buildDebug(); refreshAnniv();
     $("lobby").classList.add("hidden"); $("hud").classList.remove("hidden"); $("modebar").classList.remove("hidden");
     if (callMode) { inCall = true; connect($("roomInput").value.trim(), stream); }
     else { inCall = false; setConn("solo"); }
@@ -464,6 +494,8 @@ $("snapBtn").addEventListener("click", () => canvas.toBlob((b) => { const a = do
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
 $("loveBtn").addEventListener("click", sendSweet);
+$("confettiBtn").addEventListener("click", fireConfetti);
+$("anniv").addEventListener("click", setAnniv);
 
 // live tuning panel — sliders bound to gestures.TUNE
 const TUNE_META = {
@@ -497,6 +529,9 @@ const MODE_ACTIONS = {
   photobooth: [["shoot", "📸 3·2·1"]],
   synctest: [["go", "go"]],
   spinner: [["spin", "🎡 spin"]],
+  dressup: [["next", "👒 next hat"], ["off", "off"]],
+  truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]],
+  tictactoe: [["reset", "↺ reset"]],
 };
 function selectMode(name, btn) {
   btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);

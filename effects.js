@@ -339,6 +339,7 @@ export const Sound = {
   whoosh() { if (!throttle("whoosh", 200)) return; const a = audio(); noise(a.currentTime, 0.25, 0.12, 500); },
   sad() { if (!throttle("sad", 600)) return; const a = audio(); tone(440, a.currentTime, 0.5, "sine", 0.12, 220); },
   snap() { if (!throttle("snap", 200)) return; const a = audio(); noise(a.currentTime, 0.04, 0.25, 3000); },
+  boing() { if (!throttle("boing", 250)) return; const a = audio(); tone(500, a.currentTime, 0.28, "sine", 0.18, 180); },
 };
 
 // Map a display-normalized point [0..1] within a half to canvas pixels.

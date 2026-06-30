@@ -71,6 +71,11 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **💘 Sync Test** — a cute question pops up; both throw a finger-count answer → match = "in sync! 💕"
 - **👍 Thumb War** — hold 👍 and push the thumb to your partner's side
 - **🎡 Date Spinner** — spin for a random date-night idea
+- **👒 Dress-Up** — cycle hats; match your partner's hat to "twin 👯"
+- **💃 Slow Dance** — warm romantic ambient + hearts that pulse to the music
+- **😈 Truth or Dare** — cute couple prompts, synced
+- **🎱 Magic 8-Ball** — ask a yes/no question and **shake your head** to get an answer
+- **#️⃣ Tic-Tac-Toe** — real 2-player, pinch a cell to place your mark
 
 ## 💕 Lovey-dovey couple moments (Free mode)
 
@@ -82,6 +87,9 @@ Beyond the gestures above, when you're both on the call:
 - 🌠 **Make a wish** — close your eyes together → a shooting star crosses
 - 🍰 **Feed me** — pinch-fling a treat across the seam; if it reaches their mouth → "yum 😋"
 - 💌 **Sweet nothings** — the 💌 button flings a random cute message over to your partner
+- 🤏 **Cheek squish** — cup your face with both hands → the feed squishes with a *boing*
+- 🎉 **Confetti cannon** — the 🎉 button rains confetti on both of you
+- 💑 **Days together** — click the 💑 pill to set your anniversary; it counts the days
 - 🔥 **Streaks** — a daily heart-streak counter remembered across days
 
 **Extras:** 🎚 **live tuning panel** (HUD button) with sliders for every gesture/face
