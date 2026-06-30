@@ -24,6 +24,8 @@ ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
 
 let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
+let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH screens, player 1 = right
+let soloFx = null;              // when set, Free play runs only this one feature
 let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
 let combo = 0;
 
@@ -66,77 +68,76 @@ function sideEffects(g, side, dt) {
   if (!fxOn) return;
   const T = G.TUNE, F = g.face || {}, P = g.poses || {};
   const at = (pt) => toCanvas(pt, side);
-  const halfX = side === 0 ? MID * 0.5 : MID * 1.5;
+  const halfX = side * MID + MID * 0.5;
+  const ok = (id) => !soloFx || soloFx === id;          // single-feature filter
 
-  // ---- held toggles (frame->vignette, snap->spotlight, rock-on->concert) --
-  FX.setVignette(side, !!g.two.frame);
-  FX.setSpotlight(side, P.snap && g.palm ? g.palm : null);
-  FX.setConcert(side, P.rockOn);
+  // ---- held toggles (each forced OFF when filtered out) ----
+  FX.setVignette(side, !!g.two.frame && ok("frame"));
+  FX.setSpotlight(side, P.snap && g.palm && ok("snap") ? g.palm : null);
+  FX.setConcert(side, P.rockOn && ok("rockon"));
 
-  // 🤏 cheek-squish: two hands hugging the face → squeeze the feed
+  // 🤏 cheek-squish
   let squishing = false;
-  if (F.nose && g.hands && g.hands.length >= 2) {
-    const near = g.hands.filter((h) => Math.abs(h.x - F.nose.x) < 0.28 && h.y > F.nose.y - 0.18 && h.y < F.nose.y + 0.25);
-    squishing = near.length >= 2;
+  if (ok("squish") && F.nose && g.hands && g.hands.length >= 2) {
+    squishing = g.hands.filter((h) => Math.abs(h.x - F.nose.x) < 0.28 && h.y > F.nose.y - 0.18 && h.y < F.nose.y + 0.25).length >= 2;
   }
   squishTarget[side] = squishing ? 1 : 0;
   edge("squish" + side, squishing, () => { FX.banner(halfX, H * 0.22, "squiish~ 😆"); FX.Sound.boing(); FX.burst(halfX, H * 0.4, ["😆", "💕"], 6, 160); });
 
   // ---- continuous ----
-  if (F.smile > T.smile) {
+  if (ok("smile") && F.smile > T.smile) {
     if (Math.random() < F.smile) FX.sparkleAt(halfX + FX.rnd(-120, 120), FX.rnd(40, H * 0.55), 1);
-    if (F.smile > 0.85 && Math.random() < 0.3) FX.confetti(halfX, H * 0.3, 6);   // denser at big smile
+    if (F.smile > 0.85 && Math.random() < 0.3) FX.confetti(halfX, H * 0.3, 6);
   }
-  if (g.wave && g.palm) { const p = at(g.palm); FX.sparkleAt(p.x, p.y, 2); }
-  if (P.rockOn) for (const h of g.hands) { const p = at(h); FX.emoji(p.x, p.y, FX.rnd(-40, 40), -FX.rnd(120, 240), "🔥", FX.rnd(26, 40), 0.7, 200); }
-  if (F.frown > T.frown - 0.1 && Math.random() < 0.4) { const cx = F.nose ? at(F.nose).x : halfX; FX.emoji(cx + FX.rnd(-70, 70), H * 0.2, 0, FX.rnd(140, 220), "💧", 22, 1.5, 320); }
+  if (ok("wave") && g.wave && g.palm) { const p = at(g.palm); FX.sparkleAt(p.x, p.y, 2); }
+  if (ok("rockon") && P.rockOn) for (const h of g.hands) { const p = at(h); FX.emoji(p.x, p.y, FX.rnd(-40, 40), -FX.rnd(120, 240), "🔥", FX.rnd(26, 40), 0.7, 200); }
+  if (ok("frown") && F.frown > T.frown - 0.1 && Math.random() < 0.4) { const cx = F.nose ? at(F.nose).x : halfX; FX.emoji(cx + FX.rnd(-70, 70), H * 0.2, 0, FX.rnd(140, 220), "💧", 22, 1.5, 320); }
 
-  // ---- edge bursts: face (section 1) ----
-  edge("kiss" + side, F.kiss > T.kiss, () => {
+  // ---- edge bursts: face ----
+  if (ok("kiss")) edge("kiss" + side, F.kiss > T.kiss, () => {
     const src = F.mouth ? at(F.mouth) : { x: halfX, y: H * 0.4 };
     FX.spray(src.x, src.y, side === 0 ? 1 : -1, ["💋", "😘", "💗", "💕"], 10);
-    if (inCall) {                                            // air-kiss travels across + blush
-      const oSide = side === 0 ? 1 : 0, oG = side === 0 ? remoteG : localG;
+    if (inCall) {
+      const oSide = 1 - side, oG = (g === localG) ? remoteG : localG;
       FX.travel(src, () => oG.face.nose ? toCanvas(oG.face.nose, oSide) : { x: oSide * MID + MID / 2, y: H * 0.4 }, "💋",
         (d) => { FX.blush(d.x, d.y); FX.burst(d.x, d.y, ["💗", "💕"], 6, 160); FX.Sound.pop(); });
-      if (side === 0) { net.send({ t: "fog" }); bumpStreak(); }
+      if (g === localG) { net.send({ t: "fog" }); bumpStreak(); }
     }
   });
-  edge("brow" + side, F.brow > T.brow, () => { const p = F.nose ? at(F.nose) : { x: halfX, y: H * .35 }; FX.burst(p.x, p.y - 60, ["😮", "❗"], 8, 240); });
-  edge("blink" + side, F.blink > T.blink, () => { FX.flash(); FX.emoji(side === 0 ? 40 : W - 40, 60, 0, 0, "📸", 60, 2.2, 30); });
-  edge("tongue" + side, F.tongue > T.tongue, () => { FX.burst(F.mouth ? at(F.mouth).x : halfX, H * 0.42, ["😜", "🤪"], 8, 220); FX.Sound.raspberry(); });
-  edge("laugh" + side, !!F.laugh, () => { FX.burst(halfX, H * 0.42, ["😂"], 14, 360); FX.balloons(halfX, 6); FX.addShake(0.4); });
-  edge("frown" + side, F.frown > T.frown, () => FX.Sound.sad());
-  edge("zoned" + side, !!F.zoned, () => { FX.emoji(halfX, H * 0.35, FX.rnd(-20, 20), -120, "💤", 44, 2.4, 60); FX.Sound.sad(); });
+  if (ok("brow")) edge("brow" + side, F.brow > T.brow, () => { const p = F.nose ? at(F.nose) : { x: halfX, y: H * .35 }; FX.burst(p.x, p.y - 60, ["😮", "❗"], 8, 240); });
+  if (ok("blink")) edge("blink" + side, F.blink > T.blink, () => { FX.flash(); FX.emoji(side === 0 ? 40 : W - 40, 60, 0, 0, "📸", 60, 2.2, 30); });
+  if (ok("tongue")) edge("tongue" + side, F.tongue > T.tongue, () => { FX.burst(F.mouth ? at(F.mouth).x : halfX, H * 0.42, ["😜", "🤪"], 8, 220); FX.Sound.raspberry(); });
+  if (ok("laugh")) edge("laugh" + side, !!F.laugh, () => { FX.burst(halfX, H * 0.42, ["😂"], 14, 360); FX.balloons(halfX, 6); FX.addShake(0.4); });
+  if (ok("frown")) edge("frownS" + side, F.frown > T.frown, () => FX.Sound.sad());
+  if (ok("zoned")) edge("zoned" + side, !!F.zoned, () => { FX.emoji(halfX, H * 0.35, FX.rnd(-20, 20), -120, "💤", 44, 2.4, 60); FX.Sound.sad(); });
 
-  // ---- edge bursts: one hand (section 2) ----
-  edge("guns" + side, P.fingerGuns, () => { const p = g.point.active ? at(g.point) : { x: halfX, y: H * .4 }; FX.confetti(p.x, p.y, 16); FX.Sound.snap(); });
-  edge("peace" + side, P.peace, () => { for (let i = 0; i < 10; i++) FX.emoji(halfX + FX.rnd(-MID / 2 + 40, MID / 2 - 40), -FX.rnd(0, 120), FX.rnd(-30, 30), FX.rnd(120, 200), "✌️", FX.rnd(26, 40), FX.rnd(2, 3), 200); });
-  edge("thumbUp" + side, P.thumbsUp, () => FX.plusOne(halfX, H * 0.7, "👍"));
-  edge("thumbDn" + side, P.thumbsDown, () => { FX.plusOne(halfX, H * 0.7, "👎"); FX.burst(halfX, H * 0.5, ["🍅"], 8, 240); FX.Sound.boo(); });
-  edge("rock" + side, P.rockOn, () => FX.Sound.riff());
-  edge("wave" + side, g.wave, () => FX.banner(halfX, H * 0.22, "hi! 👋"));
+  // ---- edge bursts: one hand ----
+  if (ok("guns")) edge("guns" + side, P.fingerGuns, () => { const p = g.point.active ? at(g.point) : { x: halfX, y: H * .4 }; FX.confetti(p.x, p.y, 16); FX.Sound.snap(); });
+  if (ok("peace")) edge("peace" + side, P.peace, () => { for (let i = 0; i < 10; i++) FX.emoji(halfX + FX.rnd(-MID / 2 + 40, MID / 2 - 40), -FX.rnd(0, 120), FX.rnd(-30, 30), FX.rnd(120, 200), "✌️", FX.rnd(26, 40), FX.rnd(2, 3), 200); });
+  if (ok("thumbsup")) edge("thumbUp" + side, P.thumbsUp, () => FX.plusOne(halfX, H * 0.7, "👍"));
+  if (ok("thumbsdown")) edge("thumbDn" + side, P.thumbsDown, () => { FX.plusOne(halfX, H * 0.7, "👎"); FX.burst(halfX, H * 0.5, ["🍅"], 8, 240); FX.Sound.boo(); });
+  if (ok("rockon")) edge("rock" + side, P.rockOn, () => FX.Sound.riff());
+  if (ok("wave")) edge("wave" + side, g.wave, () => FX.banner(halfX, H * 0.22, "hi! 👋"));
 
-  // ---- edge bursts: two hands (section 3) ----
-  edge("clap" + side, g.two.clap, () => { FX.burst(halfX, H * 0.45, ["👏"], 12, 300); FX.Sound.applause(); });
-  edge("circle" + side, g.two.circle.active, () => {
+  // ---- edge bursts: two hands ----
+  if (ok("clap")) edge("clap" + side, g.two.clap, () => { FX.burst(halfX, H * 0.45, ["👏"], 12, 300); FX.Sound.applause(); });
+  if (ok("circle")) edge("circle" + side, g.two.circle.active, () => {
     const p = at({ x: g.two.circle.x, y: g.two.circle.y });
     FX.ring(p.x, p.y, "#9b6bff"); FX.burst(p.x, p.y, ["🔮", "✨"], 8, 180);
-    if (side === 0) tossSpawn(p.x, p.y, "🔮");               // conjure a tossable orb
   });
 }
 
 function drawFreeOverlay(ctx) {
-  for (const [g, side] of [[localG, 0], [inCall ? remoteG : null, 1]]) {
+  for (const [g, side] of [[localG, mySide], [inCall ? remoteG : null, 1 - mySide]]) {
     if (!g) continue;
     // laser pointer (section 2: point)
-    if (g.point && g.point.active) {
+    if ((!soloFx || soloFx === "point") && g.point && g.point.active) {
       const p = toCanvas(g.point, side);
       ctx.save(); ctx.shadowColor = "#ff3b3b"; ctx.shadowBlur = 16; ctx.fillStyle = "#ff3b3b";
       ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 7); ctx.fill(); ctx.restore();
     }
     // frown rain cloud parked over the head (section 1)
-    if (g.face && g.face.frown > G.TUNE.frown && g.face.nose) {
+    if ((!soloFx || soloFx === "frown") && g.face && g.face.frown > G.TUNE.frown && g.face.nose) {
       const n = toCanvas(g.face.nose, side);
       ctx.save(); ctx.font = "70px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText("🌧️", n.x, n.y - 150); ctx.restore();
@@ -161,7 +162,7 @@ let heldThrow = null, heldPrev = null;
 function tossSpawn(x, y, ch) { if (throws.length < 12) throws.push({ x, y, vx: 0, vy: 0, ch, s: 46 }); return throws.length - 1; }
 function tossUpdate(dt) {
   const pinching = localG.pinch && localG.pinch.active;
-  const p = pinching ? toCanvas(localG.pinch, 0) : null;
+  const p = pinching ? toCanvas(localG.pinch, mySide) : null;
   if (pinching && p) {
     if (heldThrow == null) {
       let best = -1, bd = 70; throws.forEach((o, i) => { const d = Math.hypot(o.x - p.x, o.y - p.y); if (d < bd) { bd = d; best = i; } });
@@ -171,21 +172,22 @@ function tossUpdate(dt) {
     if (o) { o.vx = heldPrev ? (p.x - heldPrev.x) / dt : 0; o.vy = heldPrev ? (p.y - heldPrev.y) / dt : 0; o.x = p.x; o.y = p.y; }
     heldPrev = p;
   } else { heldThrow = null; heldPrev = null; }
-  const myMouth = localG.face && localG.face.mouth ? toCanvas(localG.face.mouth, 0) : null;
+  const myMouth = localG.face && localG.face.mouth ? toCanvas(localG.face.mouth, mySide) : null;
   for (let i = throws.length - 1; i >= 0; i--) {
     const o = throws[i]; if (i === heldThrow) continue;
     o.vy += 700 * dt; o.x += o.vx * dt; o.y += o.vy * dt; o.vx *= 0.995;
     if (o.y > H - o.s / 2) { o.y = H - o.s / 2; o.vy *= -0.5; o.vx *= 0.8; }
     if (o.x < o.s / 2) { o.x = o.s / 2; o.vx *= -0.6; }
+    if (o.x > W - o.s / 2) { o.x = W - o.s / 2; o.vx *= -0.6; }
     // 🍰 feed-me: an incoming throwable that reaches your mouth gets "eaten"
     if (myMouth && Math.hypot(o.x - myMouth.x, o.y - myMouth.y) < 55) { FX.burst(myMouth.x, myMouth.y, ["😋", "💕"], 8, 180); FX.Sound.pop(); throws.splice(i, 1); continue; }
-    if (inCall && o.x > MID) { net.send({ t: "toss", yN: o.y / H, ch: o.ch }); throws.splice(i, 1); continue; }   // hand off to partner
-    if (!inCall && o.x > W - o.s / 2) { o.x = W - o.s / 2; o.vx *= -0.6; }
+    // hand off to partner when it crosses the seam away from my side
+    if (inCall && (mySide === 0 ? o.x > MID : o.x < MID)) { net.send({ t: "toss", yN: o.y / H, ch: o.ch }); throws.splice(i, 1); continue; }
   }
 }
 function tossDraw(ctx) {
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const o of throws) { ctx.save(); ctx.font = `${o.s}px serif`; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 8; ctx.fillText(o.ch, o.x, o.y); ctx.restore(); }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  for (const o of throws) { ctx.save(); ctx.font = `${o.s}px serif`; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(o.ch, o.x, o.y); ctx.fillStyle = "#fff"; ctx.fillText(o.ch, o.x, o.y); ctx.restore(); }
 }
 
 // couple cross-feed effects (section 4)
@@ -224,7 +226,7 @@ function coupleEffects(dt) {
 
   // boop: local points toward the seam -> lands on partner's nose
   edge("boop", localG.point.active && localG.point.x > 0.9 && remoteG.face.nose, () => {
-    const p = toCanvas(remoteG.face.nose, 1); FX.emoji(p.x, p.y, 0, 0, "👉", 50, 0.8, 0); FX.ring(p.x, p.y, "#ffd2e0"); FX.Sound.pop();
+    const p = toCanvas(remoteG.face.nose, 1 - mySide); FX.emoji(p.x, p.y, 0, 0, "👉", 50, 0.8, 0); FX.ring(p.x, p.y, "#ffd2e0"); FX.Sound.pop();
   });
 
   // mood mirror (section 8): warm when both happy, cool when sad
@@ -244,7 +246,7 @@ function nearSeam(g, side) {       // return the hand nearest the centre seam, i
 let fogTime = 0;
 function handleFreeNet(m) {
   if (m.t === "fog") { FX.setFog(0, true); fogTime = 3; }
-  else if (m.t === "toss") throws.push({ x: MID - 20, y: (m.yN || 0.5) * H, vx: -300, vy: -120, ch: m.ch || "💖", s: 46 });
+  else if (m.t === "toss") throws.push({ x: mySide === 0 ? MID - 20 : MID + 20, y: (m.yN || 0.5) * H, vx: mySide === 0 ? -300 : 300, vy: -120, ch: m.ch || "💖", s: 46 });
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
   else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
   else if (m.t === "ritual") doRitual(m.kind, false);
@@ -367,7 +369,7 @@ function drawFeed(video, side, has) {
 }
 
 function drawCursors() {
-  for (const [g, side] of [[localG, 0], [inCall ? remoteG : null, 1]]) {
+  for (const [g, side] of [[localG, mySide], [inCall ? remoteG : null, 1 - mySide]]) {
     if (!g) continue;
     for (const h of (g.hands || [])) {
       const p = toCanvas(h, side);
@@ -394,15 +396,15 @@ function loop() {
   ctx.setTransform(RS, 0, 0, RS, sh.x * RS, sh.y * RS);
   ctx.clearRect(-60, -60, W + 120, H + 120);
 
-  drawFeed(localVideo, 0, true);
-  drawFeed(remoteVideo, 1, inCall && haveRemoteVideo);
+  drawFeed(localVideo, mySide, true);
+  drawFeed(remoteVideo, 1 - mySide, inCall && haveRemoteVideo);
   ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(MID - 1, 0, 2, H);
 
   stepBeat(); updateAmbient();
   if (games.mode === "free") {
-    sideEffects(localG, 0, dt);
-    if (inCall && remoteG.present) sideEffects(remoteG, 1, dt);
-    coupleEffects(dt); tossUpdate(dt);
+    sideEffects(localG, mySide, dt);
+    if (inCall && remoteG.present) sideEffects(remoteG, 1 - mySide, dt);
+    if (!soloFx) { coupleEffects(dt); tossUpdate(dt); }     // single-feature games stay pure
   } else {
     squishTarget[0] = squishTarget[1] = 0;
     games.update(dt, localG, inCall ? remoteG : nullDummy());
@@ -472,7 +474,7 @@ function connect(word, stream) {
     const entry = { room: r, action, connected: false };
     r.onPeerJoin = (pid) => {
       entry.connected = true; connectedOnce = true; reconnectAttempts = 0; clearTimeout(reconnectTimer); lastRx = Date.now();
-      amInitiator = String(Trystero.selfId) > String(pid); games.setAuthority(amInitiator);
+      amInitiator = String(Trystero.selfId) > String(pid); games.setAuthority(amInitiator); mySide = amInitiator ? 0 : 1;
       if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.action.send(o)); }
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚");
@@ -510,7 +512,9 @@ function navTo(screen, mode, fromNet) {
   if (!fromNet && inCall) net.send({ t: "nav", screen, mode: pendingMode });
 }
 function enterPlay(mode) {
-  games.setMode(mode); FX.clearParticles();
+  if (mode.startsWith("fx:")) { soloFx = mode.slice(3); games.setMode("free"); }   // single Free feature
+  else { soloFx = null; games.setMode(mode); }
+  FX.clearParticles();
   $("modePill").textContent = (MODE_INFO[mode] ? MODE_INFO[mode].ic + " " + MODE_INFO[mode].nm : mode);
   const bar = $("actionbar"); bar.innerHTML = "";
   (MODE_ACTIONS[mode] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
@@ -566,7 +570,31 @@ const MODE_INFO = {
   karaoke: { ic: "🎤", nm: "Karaoke", cat: "Chill", how: ["Paste some lyrics", "They scroll like a teleprompter"] },
   countdown: { ic: "⏳", nm: "Countdown", cat: "Chill", how: ["Set the date you'll next meet", "It counts down the days 🥹"] },
 };
-const CAT_ORDER = ["Free play", "Create", "Games", "Couple", "Chill", "After dark 🌶️"];
+// each Free effect, playable on its own (mode id "fx:<id>")
+const FEATURES = [
+  ["smile", "😀", "Sparkle Smile", "Smile → sparkles rain (bigger smile = more)"],
+  ["kiss", "💋", "Flying Kisses", "Pucker/kiss → lips fly from your mouth"],
+  ["brow", "😮", "Shock", "Raise your eyebrows → 😮 and a pop"],
+  ["blink", "😉", "Camera Flash", "Hard blink → flash + a 📸 snapshot"],
+  ["tongue", "😝", "Raspberry", "Stick your tongue out → 😜 + raspberry"],
+  ["laugh", "😂", "Laugh Riot", "Open-mouth laugh → 😂 balloons + screen shake"],
+  ["frown", "☔", "Rain Cloud", "Frown → a rain cloud parks over your head"],
+  ["zoned", "💤", "Zzz", "Zone out → a 💤 floats up"],
+  ["wave", "👋", "Glitter Wave", "Open-hand wave → a glitter trail + 'hi!'"],
+  ["guns", "🤙", "Finger Guns", "Finger-guns → confetti shots"],
+  ["peace", "✌️", "Peace Rain", "✌️ peace → peace signs rain down"],
+  ["thumbsup", "👍", "Thumbs Up", "👍 → a big +1 floats up"],
+  ["thumbsdown", "👎", "Thumbs Down", "👎 → boo + tomatoes"],
+  ["rockon", "🤟", "Rock On", "🤟 → flames + concert lights + riff"],
+  ["snap", "🫰", "Spotlight", "Snap pose → a spotlight on you"],
+  ["point", "👉", "Laser Pointer", "Point → a laser dot follows your finger"],
+  ["clap", "👏", "Applause", "Clap your hands → applause + 👏"],
+  ["frame", "🖼️", "Glam Vignette", "Frame your face with both hands → vignette"],
+  ["circle", "🔮", "Orb", "Make a circle with both hands → a glowing orb"],
+  ["squish", "🤏", "Cheek Squish", "Cup your face with both hands → squiish"],
+];
+const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "Couple", "Chill", "After dark 🌶️"];
+for (const [id, ic, nm, how] of FEATURES) MODE_INFO["fx:" + id] = { ic, nm, cat: "Single effects 🎯", how: [how, "It's the only effect on — everything else is off."] };
 const MODE_ACTIONS = {
   share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
   toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],

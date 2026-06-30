@@ -186,10 +186,9 @@ export function createGames(net, host) {
         bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "catch", i: items, s: score, tm: time }); }
       },
       draw(ctx) {
-        const mine = meIdx();
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        for (const it of items) { const p = toCanvas(it, it.owner === mine ? 0 : 1); ctx.font = "48px serif"; ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(it.ch, p.x, p.y); ctx.fillStyle = "#fff"; ctx.fillText(it.ch, p.x, p.y); }
-        scoreboard(ctx, [score[mine], score[mine ^ 1]], time, "Catch — most catches wins");
+        for (const it of items) { const p = toCanvas(it, it.owner); ctx.font = "48px serif"; ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(it.ch, p.x, p.y); ctx.fillStyle = "#fff"; ctx.fillText(it.ch, p.x, p.y); }
+        scoreboard(ctx, score, time, "Catch — most catches wins");
       },
     };
   }
@@ -213,9 +212,8 @@ export function createGames(net, host) {
         bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "pop", b: bubbles, s: score }); }
       },
       draw(ctx) {
-        const mine = meIdx();
-        for (const b of bubbles) { const p = toCanvas(b, b.owner === mine ? 0 : 1), r = b.r * MID; ctx.save(); ctx.fillStyle = `hsl(${b.hue},85%,60%)`; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.beginPath(); ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.25, 0, 7); ctx.fill(); ctx.restore(); }
-        scoreboard(ctx, [score[mine], score[mine ^ 1]], null, "Pop — point to pop your bubbles");
+        for (const b of bubbles) { const p = toCanvas(b, b.owner), r = b.r * MID; ctx.save(); ctx.fillStyle = `hsl(${b.hue},85%,60%)`; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.beginPath(); ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.25, 0, 7); ctx.fill(); ctx.restore(); }
+        scoreboard(ctx, score, null, "Pop — point to pop your bubbles");
       },
     };
   }
@@ -289,7 +287,7 @@ export function createGames(net, host) {
         if (!loser) return big(ctx, "Don't Laugh 😐", "first to smile loses → 🤡");
         const youLost = loser === "p" + mine;
         big(ctx, youLost ? "You laughed! 😂" : "Partner laughed! 😂", "");
-        ctx.save(); ctx.globalAlpha = 0.92; ctx.font = "200px serif"; ctx.textBaseline = "middle"; ctx.fillText("🤡", (youLost ? 0 : 1) * MID + MID / 2, H / 2); ctx.restore();
+        ctx.save(); ctx.globalAlpha = 0.92; ctx.font = "200px serif"; ctx.textBaseline = "middle"; ctx.fillText("🤡", (loser === "p0" ? 0 : 1) * MID + MID / 2, H / 2); ctx.restore();
       },
     };
   }
@@ -705,7 +703,7 @@ export function createGames(net, host) {
         if (t <= 0) next();
         bc += dt; if (bc > 0.1) { bc = 0; net.send({ t: "db", s: score, ti, tt: t }); }
       },
-      draw(ctx) { const mine = meIdx(); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.fillText(score[mine] + "", W * 0.25, 56); ctx.fillText(score[mine ^ 1] + "", W * 0.75, 56); big(ctx, "do: " + MOVES[ti][0], "match the move in time! • " + Math.ceil(Math.max(0, t))); },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.fillText(score[0] + "", W * 0.25, 56); ctx.fillText(score[1] + "", W * 0.75, 56); big(ctx, "do: " + MOVES[ti][0], "match the move in time! • " + Math.ceil(Math.max(0, t))); },
     };
   }
 
@@ -837,7 +835,7 @@ export function createGames(net, host) {
   }
   function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
 
-  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
+  const factories = { share: createShareMode(net, () => authority ? 0 : 1), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
     dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode,
     mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode,
     oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode,
