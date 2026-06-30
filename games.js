@@ -691,6 +691,49 @@ export function createGames(net, host) {
     };
   }
 
+  // ---------------- SCRAPBOOK (gallery of Photo Booth shots) ---------------
+  function scrapbookMode() {
+    let imgs = [], idx = 0;
+    const load = () => { try { return JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); } catch (_) { return []; } };
+    return {
+      enter() { imgs = load().map((u) => { const i = new Image(); i.src = u; return i; }); idx = Math.max(0, imgs.length - 1); },
+      action(a) { if (a === "prev") idx = Math.max(0, idx - 1); else if (a === "next") idx = Math.min(imgs.length - 1, idx + 1); else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} imgs = []; idx = 0; } },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (!imgs.length) return big(ctx, "📔 Scrapbook", "take 📸 Photo Booth shots — they save here");
+        const im = imgs[idx];
+        if (im && im.complete && im.naturalWidth) { const w = W * 0.5, h = w * 9 / 16, x = W / 2 - w / 2, y = H / 2 - h / 2 - 20; ctx.save(); ctx.fillStyle = "#fff"; ctx.fillRect(x - 10, y - 10, w + 20, h + 50); try { ctx.drawImage(im, x, y, w, h); } catch (_) {} ctx.restore(); }
+        ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.fillText(`📔 ${idx + 1} / ${imgs.length}`, W / 2, H * 0.84);
+        hint(ctx, "Scrapbook — ◀ ▶ to flip through your memories");
+      },
+    };
+  }
+
+  // ---------------- BUCKET LIST (shared, pinch to check off) ---------------
+  function bucketMode() {
+    let items = [], down = false;
+    const load = () => { try { return JSON.parse(localStorage.getItem("wm_bucket") || "[]"); } catch (_) { return []; } };
+    const save = () => { try { localStorage.setItem("wm_bucket", JSON.stringify(items)); } catch (_) {} };
+    const rowY = (i) => 120 + i * 46;
+    return {
+      enter() { items = load(); },
+      action(a) { if (a === "add") { const v = prompt("Add something to do together:"); if (v) { items.push({ t: v, done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "clear") { items = []; save(); net.send({ t: "bucket", items }); } },
+      onNet(m) { if (m.t === "bucket") { items = m.items || []; save(); } },
+      update(dt, local) {
+        const d = local && local.pinch && local.pinch.active;
+        if (d && !down) { const p = toCanvas(local.pinch, 0); items.forEach((it, i) => { if (Math.abs(p.y - rowY(i)) < 22 && p.x > W * 0.1 && p.x < W * 0.75) { it.done = !it.done; save(); net.send({ t: "bucket", items }); FX.Sound.pop(); if (it.done) FX.sparkleAt(p.x, p.y, 6); } }); }
+        down = d;
+      },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "24px system-ui"; ctx.fillText("🪣 Our Bucket List", W / 2, 64);
+        if (!items.length) { ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.font = "20px system-ui"; ctx.fillText("press “add” to dream up things to do together 💫", W / 2, H / 2); return; }
+        ctx.textAlign = "left"; ctx.font = "22px system-ui";
+        items.forEach((it, i) => { ctx.fillStyle = it.done ? "rgba(150,255,170,.95)" : "#fff"; ctx.fillText((it.done ? "✅ " : "⬜ ") + String(it.t).slice(0, 48), W * 0.16, rowY(i)); });
+        hint(ctx, "Bucket List — “add” items • pinch an item to check it off (synced)");
+      },
+    };
+  }
+
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
@@ -706,7 +749,8 @@ export function createGames(net, host) {
   const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
     dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode,
     mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode,
-    oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode };
+    oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode,
+    scrapbook: scrapbookMode, bucket: bucketMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();

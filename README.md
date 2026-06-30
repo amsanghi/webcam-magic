@@ -89,6 +89,10 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **✨ Our Stars** — pinch to place stars; together you draw a constellation on a night sky
 - **🕺 Dance Battle** — match the called-out move in time; score vs. your partner
 - **❤️ Love Calc** — enter both names for a (always flattering) compatibility %
+- **📔 Scrapbook** — your Photo Booth shots auto-save here; flip through them
+- **🪣 Bucket List** — add things to do together; pinch to check them off (synced)
+
+**Always-on extras:** clap/cheer out loud → 👏 confetti (mic), subtle **seasonal sprinkles** by date (snow in Dec, hearts on Valentine's, fireworks on New Year/July 4th, 🎃 on Halloween), and a **🌅 ritual button** to send your partner a good-morning / good-night with themed effects.
 
 **🔞 toggle (HUD):** opt-in flirty deck — makes Truth-or-Dare and Lines cheekier. Suggestive and playful only; no explicit content.
 
