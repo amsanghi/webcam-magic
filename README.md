@@ -67,6 +67,22 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **✏️ Draw** — pinch to paint together on a shared canvas, with a faint heart template (section 6)
 - **🏷️ Stamp** — pinch to place stickers; cycle the sticker (section 6)
 - **🍓 Catch / 🫧 Pop / 🏒 Hockey / ✊ RPS / 😐 Don't Laugh / 🪞 Mirror** — six mini-games (section 7)
+- **📸 Booth** — 3·2·1 countdown → snapshots you both in a heart frame and downloads the keepsake
+- **💘 Sync Test** — a cute question pops up; both throw a finger-count answer → match = "in sync! 💕"
+- **👍 Thumb War** — hold 👍 and push the thumb to your partner's side
+- **🎡 Date Spinner** — spin for a random date-night idea
+
+## 💕 Lovey-dovey couple moments (Free mode)
+
+Beyond the gestures above, when you're both on the call:
+- 💋 **Kiss meter** — both pucker at once → smooch burst + a daily "kiss #N" counter
+- 🤙 **Pinky promise** — both make a pinky → it's sealed
+- 🫂 **Send a hug** — both open your arms wide → a hug wraps the screen
+- ❤️‍🔥 **Love-o-meter** — hold hands at the seam; a meter fills the longer you stay connected → fireworks at 100%
+- 🌠 **Make a wish** — close your eyes together → a shooting star crosses
+- 🍰 **Feed me** — pinch-fling a treat across the seam; if it reaches their mouth → "yum 😋"
+- 💌 **Sweet nothings** — the 💌 button flings a random cute message over to your partner
+- 🔥 **Streaks** — a daily heart-streak counter remembered across days
 
 **Extras:** 🎚 **live tuning panel** (HUD button) with sliders for every gesture/face
 threshold — adjust the "feel" in real time. **Reaction weather** (sun/rain/stars by mood),

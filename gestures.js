@@ -15,13 +15,13 @@ const mir = (lm) => ({ x: 1 - lm.x, y: lm.y });           // raw -> display-norm
 
 export function blankState() {
   return {
-    present: false, wave: false,
+    present: false, wave: false, fingers: 0,
     poses: { point: false, fingerGuns: false, rockOn: false, peace: false,
-             thumbsUp: false, thumbsDown: false, ok: false, snap: false, fist: false, palm: false },
+             thumbsUp: false, thumbsDown: false, ok: false, snap: false, fist: false, palm: false, pinky: false },
     pinch: { active: false, x: 0, y: 0 },
     point: { active: false, x: 0, y: 0 },
     palm: null, hands: [],
-    two: { heart: false, frame: false, clap: false, cup: false,
+    two: { heart: false, frame: false, clap: false, cup: false, armsWide: false,
            spread: { active: false, dist: 0 }, twist: { active: false, angle: 0 }, circle: { active: false, x: 0, y: 0, r: 0 } },
     face: { present: false, smile: 0, kiss: 0, brow: 0, frown: 0, blink: 0, tongue: 0, laugh: 0, zoned: false, headShake: false, nose: null, mouth: null },
   };
@@ -50,6 +50,7 @@ function classifyHand(lm) {
   else if (snapD < TUNE.snap && f.index) pose = "snap";
   else if (f.thumb && cnt === 0) pose = (lm[4].y > w.y ? "thumbsDown" : "thumbsUp");
   else if (f.index && f.pinky && !f.middle && !f.ring) pose = "rockOn";
+  else if (f.pinky && !f.index && !f.middle && !f.ring) pose = "pinky";
   else if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) pose = "fingerGuns";
   else if (f.index && f.middle && !f.ring && !f.pinky) pose = "peace";
   else if (f.index && !f.middle && !f.ring && !f.pinky) pose = "point";
@@ -74,8 +75,12 @@ export function classifyHands(landmarks, state) {
   const P = state.poses;
   for (const k in P) P[k] = false;
   state.pinch.active = false; state.point.active = false; state.palm = null;
-  state.two.heart = state.two.frame = state.two.clap = state.two.cup = false;
+  state.two.heart = state.two.frame = state.two.clap = state.two.cup = state.two.armsWide = false;
   state.two.spread.active = state.two.twist.active = state.two.circle.active = false;
+
+  // finger count (max extended fingers across hands) for "throw a number" games
+  state.fingers = 0;
+  for (const h of hands) { const n = h.f.thumb + h.f.index + h.f.middle + h.f.ring + h.f.pinky; if (n > state.fingers) state.fingers = n; }
 
   let palmHand = null;
   for (const h of hands) {
@@ -106,6 +111,8 @@ export function classifyHands(landmarks, state) {
     state.two.twist.active = true; state.two.twist.angle = Math.atan2(dy, dx);
     // clap = two palms close together
     state.two.clap = a.pose === "palm" && b.pose === "palm" && D(a.palm, b.palm) < 0.18;
+    // arms wide = two open palms held far apart (for "send a hug")
+    state.two.armsWide = a.pose === "palm" && b.pose === "palm" && Math.abs(dx) > 0.55;
     // frame = both "L"/fingerGuns shapes, hands far apart diagonally
     state.two.frame = (a.f.index && b.f.index) && Math.abs(dx) > 0.25 && (a.pose === "fingerGuns" || b.pose === "fingerGuns" || (a.f.thumb && b.f.thumb));
     // cup = two palms near each other, low in frame
