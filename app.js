@@ -540,10 +540,14 @@ const MODE_ACTIONS = {
   tictactoe: [["reset", "↺ reset"]],
   mashup: [["go", "💞 mash"]],
   countdown: [["set", "📅 set date"]],
-  pictionary: [["word", "🎨 new word"], ["reveal", "👀 reveal"], ["clear", "clear"]],
+  pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
   karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]],
   kisscam: [["start", "💋 start"]],
   pickup: [["go", "💘 line"]],
+  oursong: [["set", "🎶 name it"]],
+  mailbox: [["write", "💌 write"]],
+  stars: [["clear", "clear"]],
+  lovecalc: [["calc", "❤️ calc"]],
 };
 function selectMode(name, btn) {
   btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);

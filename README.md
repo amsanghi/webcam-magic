@@ -84,6 +84,11 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **💋 Kiss Cam** — countdown → both pucker → smooch explosion
 - **🕯️ Mood** — candlelit ambiance, just the two of you
 - **💘 Lines** — pickup-line / compliment roulette
+- **🎶 Our Song** — name your song; a vinyl + bars dance to the music (mic-reactive)
+- **💌 Mailbox** — write love notes; delivered to your partner and saved to re-read
+- **✨ Our Stars** — pinch to place stars; together you draw a constellation on a night sky
+- **🕺 Dance Battle** — match the called-out move in time; score vs. your partner
+- **❤️ Love Calc** — enter both names for a (always flattering) compatibility %
 
 **🔞 toggle (HUD):** opt-in flirty deck — makes Truth-or-Dare and Lines cheekier. Suggestive and playful only; no explicit content.
 
