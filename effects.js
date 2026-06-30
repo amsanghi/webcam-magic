@@ -1,0 +1,260 @@
+// effects.js — particle engine, screen overlays, and WebAudio sounds.
+// All spawner coordinates are CANVAS pixels. Canvas is 1280x720, seam at MID.
+
+export const W = 1280, H = 720, MID = 640;
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+export { rnd, pick };
+
+// ---------------------------------------------------------------------------
+// PARTICLES
+// ---------------------------------------------------------------------------
+const particles = [];
+const MAX_P = 1800;
+
+export function emoji(x, y, vx, vy, ch, size, life, g = 600, opts = {}) {
+  if (particles.length >= MAX_P) return;
+  particles.push({
+    x, y, vx, vy, ch, size, life, max: life, g,
+    rot: opts.rot ?? rnd(-0.5, 0.5), vr: opts.vr ?? rnd(-3, 3),
+    spin: opts.spin || false, stick: opts.stick || null, pop: opts.pop !== false,
+  });
+}
+export function flood(x0, x1, chars, n, big = false) {
+  for (let i = 0; i < n; i++)
+    emoji(rnd(x0, x1), H + rnd(0, 140), rnd(-40, 40), rnd(-560, -360),
+          pick(chars), big ? rnd(46, 82) : rnd(26, 46), rnd(2.4, 4), 130);
+}
+export function burst(x, y, chars, n, spd = 380) {
+  for (let i = 0; i < n; i++) {
+    const a = rnd(0, Math.PI * 2), s = rnd(spd * 0.4, spd);
+    emoji(x, y, Math.cos(a) * s, Math.sin(a) * s, pick(chars), rnd(28, 48), rnd(1, 2), 480);
+  }
+}
+export function spray(x, y, dir, chars, n) {
+  for (let i = 0; i < n; i++)
+    emoji(x, y, dir * rnd(260, 560), rnd(-240, 60), pick(chars), rnd(30, 52), rnd(1.6, 2.8), 140);
+}
+export function fountain(x, y, chars, n, spd = 520) {
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + rnd(-0.5, 0.5);
+    emoji(x, y, Math.cos(a) * rnd(spd * 0.4, spd), Math.sin(a) * rnd(spd * 0.6, spd),
+          pick(chars), rnd(26, 44), rnd(1.4, 2.4), 560);
+  }
+}
+export function sparkleAt(x, y, n = 1) {
+  for (let i = 0; i < n; i++)
+    emoji(x + rnd(-46, 46), y + rnd(-46, 46), rnd(-30, 30), rnd(-70, 30),
+          pick(["✨", "⭐", "💫", "🌟"]), rnd(15, 30), rnd(0.7, 1.5), 200);
+}
+export function confetti(x, y, n = 18) {
+  for (let i = 0; i < n; i++) {
+    const a = rnd(-Math.PI, 0), s = rnd(260, 560);
+    emoji(x, y, Math.cos(a) * s, Math.sin(a) * s,
+          pick(["🎉", "🎊", "🟥", "🟦", "🟨", "🟩", "🟪"]), rnd(16, 30), rnd(1.2, 2.2), 620, { spin: true });
+  }
+}
+export function plusOne(x, y, ch = "👍") { emoji(x, y, 0, -300, ch, 76, 2, 70, { vr: 0 }); }
+
+export function stepParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    if (p.stick && p.stick()) { const s = p.stick(); p.x = s.x; p.y = s.y; }
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    if (!p.stick) {
+      p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    }
+  }
+}
+export function drawParticles(ctx) {
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const p of particles) {
+    const t = p.life / p.max;
+    const grow = p.pop ? Math.min(1, (1 - t) * 5) : 1;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, t * 2.4);
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.font = `${p.size * (0.6 + 0.4 * grow)}px serif`;
+    ctx.fillText(p.ch, 0, 0);
+    ctx.restore();
+  }
+}
+export function clearParticles() { particles.length = 0; }
+export const particleCount = () => particles.length;
+
+// ---------------------------------------------------------------------------
+// SCREEN STATE (held, eased) — vignette, tint, spotlight, fog, rainbow
+// ---------------------------------------------------------------------------
+const ease = (cur, tgt, k) => cur + (tgt - cur) * k;
+const screen = {
+  vig: [0, 0], vigT: [0, 0],
+  tint: { r: 255, g: 120, b: 160, a: 0, aT: 0 },
+  spot: [null, null],            // {x,y} per side, or null
+  fog: [0, 0], fogT: [0, 0], holes: [[], []],
+  shake: 0,
+};
+let rainbow = 0;                 // ttl seconds for the arc
+
+export function setVignette(side, on) { screen.vigT[side] = on ? 1 : 0; }
+export function setSpotlight(side, pt) { screen.spot[side] = pt; }
+export function setTint(r, g, b, a) { screen.tint.r = r; screen.tint.g = g; screen.tint.b = b; screen.tint.aT = a; }
+export function setFog(side, on) { screen.fogT[side] = on ? 1 : 0; if (!on && screen.fog[side] < 0.02) screen.holes[side] = []; }
+export function wipeFog(side, x, y) { screen.holes[side].push({ x, y, r: 70, t: 1 }); }
+export function triggerRainbow() { rainbow = 3.2; }
+export function addShake(a) { screen.shake = Math.max(screen.shake, a); }
+export function getShake() {
+  if (screen.shake < 0.01) return { x: 0, y: 0 };
+  return { x: rnd(-1, 1) * 18 * screen.shake, y: rnd(-1, 1) * 18 * screen.shake };
+}
+
+export function stepScreen(dt) {
+  for (let s = 0; s < 2; s++) {
+    screen.vig[s] = ease(screen.vig[s], screen.vigT[s], 0.15);
+    screen.fog[s] = ease(screen.fog[s], screen.fogT[s], 0.08);
+    for (const h of screen.holes[s]) { h.r = Math.min(140, h.r + 220 * dt); h.t -= dt * 0.12; }
+    screen.holes[s] = screen.holes[s].filter((h) => h.t > 0);
+  }
+  screen.tint.a = ease(screen.tint.a, screen.tint.aT, 0.05);
+  screen.shake *= 0.86;
+  if (rainbow > 0) rainbow -= dt;
+}
+
+export function drawScreen(ctx) {
+  // mood tint (whole frame)
+  if (screen.tint.a > 0.01) {
+    ctx.save(); ctx.globalAlpha = screen.tint.a;
+    ctx.fillStyle = `rgb(${screen.tint.r|0},${screen.tint.g|0},${screen.tint.b|0})`;
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.fillRect(0, 0, W, H); ctx.restore();
+  }
+  // per-side vignette
+  for (let s = 0; s < 2; s++) {
+    if (screen.vig[s] > 0.01) {
+      const cx = s * MID + MID / 2, cy = H / 2;
+      const g = ctx.createRadialGradient(cx, cy, H * 0.18, cx, cy, H * 0.62);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, `rgba(0,0,0,${0.8 * screen.vig[s]})`);
+      ctx.save(); ctx.beginPath(); ctx.rect(s * MID, 0, MID, H); ctx.clip();
+      ctx.fillStyle = g; ctx.fillRect(s * MID, 0, MID, H); ctx.restore();
+    }
+    // spotlight: darken everything except a soft circle at pt
+    const sp = screen.spot[s];
+    if (sp) {
+      const c = { x: s * MID + sp.x * MID, y: sp.y * H };
+      const g = ctx.createRadialGradient(c.x, c.y, 30, c.x, c.y, 220);
+      g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.72)");
+      ctx.save(); ctx.beginPath(); ctx.rect(s * MID, 0, MID, H); ctx.clip();
+      ctx.fillStyle = g; ctx.fillRect(s * MID, 0, MID, H); ctx.restore();
+    }
+    // fog with wipe holes
+    if (screen.fog[s] > 0.01) {
+      ctx.save(); ctx.beginPath(); ctx.rect(s * MID, 0, MID, H); ctx.clip();
+      ctx.globalAlpha = 0.85 * screen.fog[s];
+      ctx.fillStyle = "#cdd6e6"; ctx.fillRect(s * MID, 0, MID, H);
+      ctx.globalCompositeOperation = "destination-out";
+      for (const h of screen.holes[s]) {
+        const c = { x: s * MID + h.x * MID, y: h.y * H };
+        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, h.r);
+        g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, h.r, 0, 7); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+  // rainbow arc across both feeds
+  if (rainbow > 0) {
+    const a = Math.min(1, rainbow) * 0.6;
+    const cols = ["#ff5b5b", "#ffa24b", "#ffe24b", "#5bd96b", "#4bb6ff", "#9b6bff"];
+    ctx.save(); ctx.globalAlpha = a; ctx.lineWidth = 16; ctx.lineCap = "round";
+    cols.forEach((c, i) => {
+      ctx.strokeStyle = c; ctx.beginPath();
+      ctx.arc(W / 2, H + 120, 360 + i * 18, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TRANSIENT OVERLAYS (flash, links, custom draws with ttl)
+// ---------------------------------------------------------------------------
+const overlays = [];
+export function flash() { overlays.push({ ttl: 0.45, age: 0, kind: "flash" }); }
+export function link(ax, ay, bx, by) { overlays.push({ ttl: 0.1, age: 0, kind: "link", ax, ay, bx, by }); }
+export function ring(x, y, color) { overlays.push({ ttl: 0.6, age: 0, kind: "ring", x, y, color }); }
+
+export function stepOverlays(dt) {
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    overlays[i].age += dt;
+    if (overlays[i].age >= overlays[i].ttl) overlays.splice(i, 1);
+  }
+}
+export function drawOverlays(ctx) {
+  for (const o of overlays) {
+    const k = o.age / o.ttl;
+    if (o.kind === "flash") {
+      ctx.save(); ctx.globalAlpha = (1 - k) * 0.9; ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, W, H); ctx.restore();
+    } else if (o.kind === "link") {
+      ctx.save(); ctx.globalAlpha = 0.9; ctx.strokeStyle = "#ff7aa8"; ctx.lineWidth = 6;
+      ctx.shadowColor = "#ff7aa8"; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(o.ax, o.ay);
+      ctx.quadraticCurveTo((o.ax + o.bx) / 2, Math.min(o.ay, o.by) - 60, o.bx, o.by);
+      ctx.stroke(); ctx.restore();
+    } else if (o.kind === "ring") {
+      ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = o.color || "#fff";
+      ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(o.x, o.y, 20 + k * 90, 0, 7); ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SOUND (WebAudio, no assets)
+// ---------------------------------------------------------------------------
+let actx = null;
+const audio = () => (actx = actx || new (window.AudioContext || window.webkitAudioContext)());
+function tone(f, t0, dur, type = "sine", vol = 0.15, slideTo = null) {
+  const a = audio(), o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t0);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+  o.connect(g); g.connect(a.destination);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noise(t0, dur, vol = 0.2, hp = 800) {
+  const a = audio(), n = a.createBufferSource();
+  const buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  n.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = "highpass"; f.frequency.value = hp;
+  const g = a.createGain(); g.gain.value = vol;
+  n.connect(f); f.connect(g); g.connect(a.destination);
+  n.start(t0); n.stop(t0 + dur);
+}
+let lastSound = {};
+function throttle(name, ms) { const t = performance.now(); if (t - (lastSound[name] || 0) < ms) return false; lastSound[name] = t; return true; }
+
+export const Sound = {
+  chime() { if (!throttle("chime", 600)) return; const a = audio(); [880, 1320, 1760].forEach((f, i) => tone(f, a.currentTime + i * 0.08, 0.5, "sine", 0.16)); },
+  pop() { if (!throttle("pop", 60)) return; const a = audio(); tone(660, a.currentTime, 0.12, "triangle", 0.18, 990); },
+  boo() { if (!throttle("boo", 500)) return; const a = audio(); tone(300, a.currentTime, 0.6, "sawtooth", 0.14, 120); },
+  applause() { if (!throttle("clap", 400)) return; const a = audio(); for (let i = 0; i < 14; i++) noise(a.currentTime + i * 0.03, 0.06, 0.12, 1500); },
+  raspberry() { if (!throttle("rasp", 500)) return; const a = audio(); tone(140, a.currentTime, 0.5, "sawtooth", 0.16, 90); },
+  riff() { if (!throttle("riff", 700)) return; const a = audio(); [330, 392, 494, 660].forEach((f, i) => tone(f, a.currentTime + i * 0.09, 0.25, "square", 0.1)); },
+  whoosh() { if (!throttle("whoosh", 200)) return; const a = audio(); noise(a.currentTime, 0.25, 0.12, 500); },
+  sad() { if (!throttle("sad", 600)) return; const a = audio(); tone(440, a.currentTime, 0.5, "sine", 0.12, 220); },
+  snap() { if (!throttle("snap", 200)) return; const a = audio(); noise(a.currentTime, 0.04, 0.25, 3000); },
+};
+
+// Map a display-normalized point [0..1] within a half to canvas pixels.
+// side 0 (local) is selfie-mirrored; side 1 (remote) is flipped the other way
+// so a partner reaching "toward the seam" (x→1) lands at the centre (x→MID).
+export function toCanvas(pt, side) {
+  return side === 0 ? { x: pt.x * MID, y: pt.y * H } : { x: W - pt.x * MID, y: pt.y * H };
+}
