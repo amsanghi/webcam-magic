@@ -1,210 +1,162 @@
-// Webcam Magic — frontend-only gesture & face "party" for two.
-// Pipeline: webcam -> MediaPipe (hands + face) -> gesture state -> particle FX.
-// Networking: Trystero (mqtt + torrent), reused from WatchTogether. No backend.
-// The local feed is detected here; the partner sends a compact gesture packet,
-// so each side only ever runs MediaPipe on its OWN camera.
-
+// app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
+// couple cross-feed effects, mode/game switching, and Trystero networking.
 import { HandLandmarker, FaceLandmarker, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import * as FX from "./effects.js";
+import * as G from "./gestures.js";
+import { createGames } from "./games.js";
 
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
+const { W, H, MID, toCanvas } = FX;
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
-const W = canvas.width, H = canvas.height, MID = W / 2;
 const localVideo = $("localVideo"), remoteVideo = $("remoteVideo");
 
 let handLM = null, faceLM = null;
-let inCall = false, fxOn = true;
-let frame = 0, lastFps = performance.now(), fpsCount = 0;
+let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false;
+let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
+let combo = 0;
 
-// ---- gesture state shared between the two sides ----------------------------
-// All points are "display-normalized" [0..1] in a single (mirrored) half.
-function blankG() {
-  return { present: false, smile: 0, kiss: 0, laugh: 0, heart: false,
-           palm: null, mouth: null, wave: false, peace: false, thumbs: false };
-}
-const localG = blankG();
-let remoteG = blankG();
-let haveRemoteVideo = false;
+let localG = G.blankState(), remoteG = G.blankState();
+
+// ---- networking handle passed into games ----------------------------------
+const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
+let sendMsg = null;
+const games = createGames(net);
 
 // =====================================================================
-//  PARTICLE SYSTEM
+//  LOCAL DETECTION
 // =====================================================================
-const particles = [];
-const MAX_P = 1400;
-let shake = 0;
-
-function add(p) { if (particles.length < MAX_P) particles.push(p); }
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
-const rnd = (a, b) => a + Math.random() * (b - a);
-
-function emoji(x, y, vx, vy, ch, size, life, gravity = 600) {
-  add({ x, y, vx, vy, ch, size, life, max: life, rot: rnd(-0.5, 0.5),
-        vr: rnd(-3, 3), g: gravity, scaleIn: true });
-}
-// rising flood from the bottom of a region [x0,x1]
-function flood(x0, x1, chars, count, big = false) {
-  for (let i = 0; i < count; i++)
-    emoji(rnd(x0, x1), H + rnd(0, 120), rnd(-40, 40), rnd(-520, -340),
-          pick(chars), big ? rnd(46, 80) : rnd(26, 46), rnd(2.4, 3.8), 120);
-}
-function burst(x, y, chars, count, spd = 380) {
-  for (let i = 0; i < count; i++) {
-    const a = rnd(0, Math.PI * 2), s = rnd(spd * 0.4, spd);
-    emoji(x, y, Math.cos(a) * s, Math.sin(a) * s, pick(chars), rnd(28, 48), rnd(1.0, 2.0), 500);
-  }
-}
-// directed spray (e.g. kisses flying toward the other half)
-function spray(x, y, dir, chars, count) {
-  for (let i = 0; i < count; i++)
-    emoji(x, y, dir * rnd(260, 520), rnd(-220, 60), pick(chars), rnd(30, 52), rnd(1.6, 2.6), 120);
-}
-function sparkle(x, y) {
-  emoji(x + rnd(-50, 50), y + rnd(-50, 50), rnd(-30, 30), rnd(-60, 40),
-        pick(["✨", "⭐", "💫", "🌟"]), rnd(16, 30), rnd(0.8, 1.6), 220);
-}
-
-function stepParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.life -= dt;
-    if (p.life <= 0) { particles.splice(i, 1); continue; }
-    p.vy += p.g * dt;
-    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
-  }
-}
-function drawParticles() {
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const p of particles) {
-    const t = p.life / p.max;
-    const grow = p.scaleIn ? Math.min(1, (1 - t) * 4) : 1;     // little pop-in
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, t * 2.2);                    // fade near death
-    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    ctx.font = `${p.size * (0.6 + 0.4 * grow)}px serif`;
-    ctx.fillText(p.ch, 0, 0);
-    ctx.restore();
-  }
-}
-
-// =====================================================================
-//  GESTURE MATH
-// =====================================================================
-const HEART_EMO = ["❤️", "💖", "💕", "💗", "💘", "💞", "🩷"];
-const KISS_EMO  = ["💋", "😘", "💗", "💕"];
-const SPARK_EMO = ["✨", "⭐", "💫", "🌟", "🌸"];
-
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-
-// which fingers are extended, via distance-from-wrist heuristic (orientation-free)
-function fingersUp(lm) {
-  const w = lm[0];
-  const up = (tip, pip) => dist(lm[tip], w) > dist(lm[pip], w);
-  return {
-    thumb:  dist(lm[4], w) > dist(lm[2], w) * 1.05,
-    index:  up(8, 6), middle: up(12, 10), ring: up(16, 14), pinky: up(20, 18),
-  };
-}
-function classify(lm) {
-  const f = fingersUp(lm);
-  const cnt = (f.index + f.middle + f.ring + f.pinky);
-  if (f.thumb && cnt === 0) return "thumbs";
-  if (f.index && f.middle && !f.ring && !f.pinky) return "peace";
-  if (cnt >= 4) return "palm";
-  return "";
-}
-// two hands forming a heart: index tips meet (top), thumb tips meet (bottom)
-function isHeart(hands) {
-  if (hands.length < 2) return false;
-  const [a, b] = hands;
-  const handSize = (dist(a[0], a[9]) + dist(b[0], b[9])) / 2 || 1;
-  const idxGap = dist(a[8], b[8]) / handSize;
-  const thbGap = dist(a[4], b[4]) / handSize;
-  const idxY = (a[8].y + b[8].y) / 2, thbY = (a[4].y + b[4].y) / 2;
-  return idxGap < 0.7 && thbGap < 1.0 && idxY < thbY;
-}
-
-// =====================================================================
-//  LOCAL DETECTION  (runs MediaPipe on our own camera)
-// =====================================================================
-let lastVideoTime = -1, palmHist = null;
-
-function detectLocal() {
-  if (!handLM || localVideo.readyState < 2) return;
-  if (localVideo.currentTime === lastVideoTime) return;
+function detectLocal(dt) {
+  if (!handLM || localVideo.readyState < 2 || localVideo.currentTime === lastVideoTime) return;
   lastVideoTime = localVideo.currentTime;
   const ts = performance.now();
-
-  // hands
   const hr = handLM.detectForVideo(localVideo, ts);
-  const hands = (hr.landmarks || []);
-  localG.present = hands.length > 0;
-  localG.heart = isHeart(hands);
-
-  // classify gestures + palm point
-  localG.peace = false; localG.thumbs = false; localG.palm = null;
-  let palmPt = null;
-  for (const lm of hands) {
-    const g = classify(lm);
-    if (g === "peace") localG.peace = true;
-    if (g === "thumbs") localG.thumbs = true;
-    if (g === "palm") palmPt = { x: 1 - lm[9].x, y: lm[9].y }; // mirrored, normalized
-  }
-  // wave = open palm moving sideways
-  localG.wave = false;
-  if (palmPt) {
-    localG.palm = palmPt;
-    if (palmHist) {
-      const vx = Math.abs(palmPt.x - palmHist.x);
-      if (vx > 0.012) localG.wave = true;
-    }
-    palmHist = palmPt;
-  } else palmHist = null;
-
-  // face (throttled to every other frame for performance)
+  G.classifyHands(hr.landmarks, localG);
   if (faceLM && frame % 2 === 0) {
     const fr = faceLM.detectForVideo(localVideo, ts + 0.5);
-    const bs = fr.faceBlendshapes && fr.faceBlendshapes[0];
-    const lms = fr.faceLandmarks && fr.faceLandmarks[0];
-    if (bs && lms) {
-      const get = (n) => { const c = bs.categories.find((c) => c.categoryName === n); return c ? c.score : 0; };
-      localG.smile = (get("mouthSmileLeft") + get("mouthSmileRight")) / 2;
-      localG.kiss  = get("mouthPucker");
-      localG.laugh = (get("jawOpen") > 0.35 && localG.smile > 0.25) ? 1 : 0;
-      const up = lms[13], lo = lms[14];                        // inner lip centers
-      localG.mouth = { x: 1 - (up.x + lo.x) / 2, y: (up.y + lo.y) / 2 };
-    } else {
-      localG.smile = localG.kiss = localG.laugh = 0; localG.mouth = null;
-    }
+    G.classifyFace(fr.faceBlendshapes && fr.faceBlendshapes[0], fr.faceLandmarks && fr.faceLandmarks[0], localG, dt * 2);
   }
 }
 
 // =====================================================================
-//  RENDER + EFFECTS
+//  FREE-PLAY EFFECTS  (sections 1, 2, 3 per side + 4 couple + 8 ambient)
 // =====================================================================
-const prev = { localKiss: false, remoteKiss: false, localPeace: false,
-               remotePeace: false, localThumbs: false, remoteThumbs: false,
-               localLaugh: false, remoteLaugh: false, mutualHeart: false };
-let lastChime = 0;
+const edges = {};
+function edge(key, cond, fn) { if (cond && !edges[key]) fn(); edges[key] = cond; }
 
-// map a display-normalized point into a half: side 0 = left, 1 = right
-function toCanvas(pt, side) {
-  return { x: side * MID + pt.x * MID, y: pt.y * H };
+const FACE_SMILE = ["✨", "⭐", "💫", "🌟", "🌸"];
+
+function sideEffects(g, side, dt) {
+  if (!fxOn) return;
+  const F = g.face || {};
+  const P = g.poses || {};
+  const at = (pt) => toCanvas(pt, side);
+  const halfX = side === 0 ? MID * 0.5 : MID * 1.5;
+
+  // ---- held toggles (section 3 frame->vignette, section 2 snap->spotlight)
+  FX.setVignette(side, !!g.two.frame);
+  FX.setSpotlight(side, P.snap && g.palm ? g.palm : null);
+
+  // ---- continuous ----
+  if (F.smile > 0.4 && Math.random() < F.smile) FX.sparkleAt(halfX + FX.rnd(-120, 120), FX.rnd(40, H * 0.55), 1);
+  if (g.wave && g.palm) { const p = at(g.palm); FX.sparkleAt(p.x, p.y, 2); }
+  if (P.rockOn) for (const h of g.hands) { const p = at(h); FX.emoji(p.x, p.y, FX.rnd(-40, 40), -FX.rnd(120, 240), "🔥", FX.rnd(26, 40), 0.7, 200); }
+  if (F.frown > 0.45 && Math.random() < 0.3) { const cx = F.nose ? at(F.nose).x : halfX; FX.emoji(cx + FX.rnd(-70, 70), H * 0.25, 0, FX.rnd(120, 200), "💧", 22, 1.4, 300); }
+
+  // ---- edge bursts (section 1 face) ----
+  edge("kiss" + side, F.kiss > 0.5, () => {
+    const p = F.mouth ? at(F.mouth) : { x: halfX, y: H * 0.4 };
+    FX.spray(p.x, p.y, side === 0 ? 1 : -1, ["💋", "😘", "💗", "💕"], 14);
+    if (inCall && side === 0) net.send({ t: "fog" });        // fogs partner's screen
+  });
+  edge("brow" + side, F.brow > 0.6, () => { const p = F.nose ? at(F.nose) : { x: halfX, y: H * .35 }; FX.burst(p.x, p.y - 60, ["😮", "❗"], 8, 240); });
+  edge("blink" + side, F.blink > 0.55, () => { FX.flash(); FX.emoji(halfX, H * 0.3, FX.rnd(-30, 30), 120, "📸", 56, 2.2, 120); });
+  edge("tongue" + side, F.tongue > 0.4, () => { FX.burst(F.mouth ? at(F.mouth).x : halfX, H * 0.42, ["😜", "🤪"], 8, 220); FX.Sound.raspberry(); });
+  edge("laugh" + side, !!F.laugh, () => { FX.burst(halfX, H * 0.42, ["😂"], 16, 360); FX.addShake(0.4); });
+  edge("frown" + side, F.frown > 0.55, () => FX.Sound.sad());
+  edge("zoned" + side, !!F.zoned, () => FX.emoji(halfX, H * 0.35, FX.rnd(-20, 20), -120, "💤", 44, 2.4, 60));
+
+  // ---- edge bursts (section 2 single-hand) ----
+  edge("guns" + side, P.fingerGuns, () => { const p = g.point.active ? at(g.point) : { x: halfX, y: H * .4 }; FX.confetti(p.x, p.y, 16); FX.Sound.snap(); });
+  edge("peace" + side, P.peace, () => FX.burst(halfX, H * 0.4, ["✌️"], 10, 260));
+  edge("thumbUp" + side, P.thumbsUp, () => FX.plusOne(halfX, H * 0.7, "👍"));
+  edge("thumbDn" + side, P.thumbsDown, () => { FX.plusOne(halfX, H * 0.7, "👎"); FX.burst(halfX, H * 0.5, ["🍅"], 8, 240); FX.Sound.boo(); });
+  edge("rock" + side, P.rockOn, () => FX.Sound.riff());
+
+  // ---- edge bursts (section 3 two-hand) ----
+  edge("clap" + side, g.two.clap, () => { FX.burst(halfX, H * 0.45, ["👏"], 12, 300); FX.Sound.applause(); });
+  edge("circle" + side, g.two.circle.active, () => { const p = at({ x: g.two.circle.x, y: g.two.circle.y }); FX.ring(p.x, p.y, "#9b6bff"); FX.burst(p.x, p.y, ["🔮", "✨"], 10, 200); });
 }
 
+function drawFreeOverlay(ctx) {
+  // laser pointer (section 2: point)
+  for (const [g, side] of [[localG, 0], [inCall ? remoteG : null, 1]]) {
+    if (g && g.point && g.point.active) {
+      const p = toCanvas(g.point, side);
+      ctx.save(); ctx.shadowColor = "#ff3b3b"; ctx.shadowBlur = 16; ctx.fillStyle = "#ff3b3b";
+      ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 7); ctx.fill(); ctx.restore();
+    }
+  }
+}
+
+// couple cross-feed effects (section 4)
+function coupleEffects(dt) {
+  if (!inCall) return;
+  // mutual heart -> eruption
+  edge("mutualHeart", localG.two.heart && remoteG.two.heart, () => {
+    FX.flood(0, W, ["❤️", "💖", "💕", "💗", "💞", "🩷"], 120, true);
+    FX.burst(W / 2, H / 2, ["❤️", "💖", "💕"], 40, 520); FX.addShake(0.5); FX.Sound.chime();
+    combo++;
+  });
+  // synchronized smile -> rainbow
+  edge("syncSmile", localG.face.smile > 0.45 && remoteG.face.smile > 0.45, () => { FX.triggerRainbow(); FX.Sound.chime(); });
+
+  // hands meeting at the seam: high-five (edge) + hold-hands link (held)
+  const lHand = nearSeam(localG, 0), rHand = nearSeam(remoteG, 1);
+  const meeting = lHand && rHand && Math.abs(lHand.y - rHand.y) < 0.22;
+  edge("highfive", meeting, () => { FX.burst(MID, ((lHand.y + rHand.y) / 2) * H, ["🙌", "✋", "✨"], 16, 360); FX.addShake(0.3); FX.Sound.pop(); });
+  if (meeting) FX.link(MID - 4, lHand.y * H, MID + 4, rHand.y * H);
+
+  // boop: local points toward the seam -> lands on partner's nose
+  edge("boop", localG.point.active && localG.point.x > 0.9 && remoteG.face.nose, () => {
+    const p = toCanvas(remoteG.face.nose, 1); FX.emoji(p.x, p.y, 0, 0, "👉", 50, 0.8, 0); FX.ring(p.x, p.y, "#ffd2e0"); FX.Sound.pop();
+  });
+
+  // mood mirror (section 8): warm when both happy, cool when sad
+  const happy = (localG.face.smile + remoteG.face.smile) / 2;
+  const sad = (localG.face.frown + remoteG.face.frown) / 2;
+  if (happy > 0.35) FX.setTint(255, 140, 175, Math.min(0.22, happy * 0.3));
+  else if (sad > 0.4) FX.setTint(110, 150, 255, Math.min(0.2, sad * 0.3));
+  else FX.setTint(255, 140, 175, 0);
+}
+function nearSeam(g, side) {       // return the hand nearest the centre seam, if close
+  let best = null;
+  for (const h of g.hands) if (h.x > 0.82 && (!best || h.x > best.x)) best = h;
+  return best;
+}
+
+// fog received from partner's blown kiss (section 4)
+let fogTime = 0;
+function handleFreeNet(m) {
+  if (m.t === "fog") { FX.setFog(0, true); fogTime = 3; }
+}
+
+// =====================================================================
+//  RENDER
+// =====================================================================
 function drawFeed(video, side, has) {
   ctx.save();
   ctx.beginPath(); ctx.rect(side * MID, 0, MID, H); ctx.clip();
   if (has && video.readyState >= 2) {
-    ctx.translate(side * MID + MID, 0); ctx.scale(-1, 1);       // selfie-mirror each half
-    // cover-fit the video into the half
+    if (side === 0) { ctx.translate(MID, 0); ctx.scale(-1, 1); }   // local: selfie mirror
     const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
-    const scale = Math.max(MID / vw, H / vh);
-    const dw = vw * scale, dh = vh * scale;
-    ctx.drawImage(video, (MID - dw) / 2, (H - dh) / 2, dw, dh);
+    const sc = Math.max(MID / vw, H / vh), dw = vw * sc, dh = vh * sc;
+    const ox = side === 0 ? (MID - dw) / 2 : MID + (MID - dw) / 2;
+    ctx.drawImage(video, ox, (H - dh) / 2, dw, dh);
   } else {
     ctx.fillStyle = "#0d1018"; ctx.fillRect(side * MID, 0, MID, H);
     ctx.fillStyle = "#566"; ctx.font = "20px system-ui"; ctx.textAlign = "center";
@@ -213,246 +165,167 @@ function drawFeed(video, side, has) {
   ctx.restore();
 }
 
-// per-side solo effects driven by a gesture state
-function sideEffects(g, side, dt) {
-  if (!fxOn || !g.present && !g.mouth) return;
-  const x0 = side * MID, x1 = x0 + MID;
-
-  if (g.smile > 0.4) { if (Math.random() < g.smile) sparkle(toCanvas({ x: 0.5, y: 0.35 }, side).x, rnd(0, H * 0.5)); }
-  if (g.wave && g.palm) { const p = toCanvas(g.palm, side); for (let i = 0; i < 2; i++) sparkle(p.x, p.y); }
-
-  if (g.heart) {                                              // solo heart -> gentle flood your side
-    if (Math.random() < 0.6) flood(x0, x1, HEART_EMO, 4);
+function drawCursors() {
+  for (const [g, side] of [[localG, 0], [inCall ? remoteG : null, 1]]) {
+    if (!g) continue;
+    for (const h of (g.hands || [])) {
+      const p = toCanvas(h, side);
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, 7); ctx.stroke(); ctx.restore();
+    }
   }
-}
-
-// edge-triggered (fire-once) effects
-function edgeEffects() {
-  const lm = (g, side, prevKey, fn) => {
-    if (g && !prev[prevKey]) fn(side);
-    prev[prevKey] = !!g;
-  };
-  // kisses fly toward the OTHER side
-  lm(localG.kiss > 0.5, 0, "localKiss", () => {
-    const p = localG.mouth ? toCanvas(localG.mouth, 0) : { x: MID * 0.5, y: H * 0.4 };
-    spray(p.x, p.y, +1, KISS_EMO, 14);
-  });
-  lm(remoteG.kiss > 0.5, 1, "remoteKiss", () => {
-    const p = remoteG.mouth ? toCanvas(remoteG.mouth, 1) : { x: MID * 1.5, y: H * 0.4 };
-    spray(p.x, p.y, -1, KISS_EMO, 14);
-  });
-  lm(localG.peace, 0, "localPeace", (s) => burst(MID * 0.5, H * 0.4, ["✌️"], 10));
-  lm(remoteG.peace, 1, "remotePeace", (s) => burst(MID * 1.5, H * 0.4, ["✌️"], 10));
-  lm(localG.thumbs, 0, "localThumbs", () => emoji(MID * 0.5, H * 0.75, 0, -300, "👍", 70, 2.0, 80));
-  lm(remoteG.thumbs, 1, "remoteThumbs", () => emoji(MID * 1.5, H * 0.75, 0, -300, "👍", 70, 2.0, 80));
-  lm(localG.laugh, 0, "localLaugh", () => { burst(MID * 0.5, H * 0.4, ["😂"], 16); shake = 0.35; });
-  lm(remoteG.laugh, 1, "remoteLaugh", () => { burst(MID * 1.5, H * 0.4, ["😂"], 16); shake = 0.35; });
-
-  // ✦ the headline: BOTH making a heart at once -> full-screen eruption ✦
-  const reallyMutual = localG.heart && inCall && remoteG.heart;
-  if (reallyMutual && !prev.mutualHeart) {
-    flood(0, W, HEART_EMO, 120, true);
-    burst(W / 2, H / 2, HEART_EMO, 40, 520);
-    shake = 0.5; chime();
-  }
-  prev.mutualHeart = reallyMutual;
-}
-
-// tiny WebAudio chime (no asset needed)
-let actx = null;
-function chime() {
-  const now = performance.now();
-  if (now - lastChime < 800) return; lastChime = now;
-  try {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    [880, 1320, 1760].forEach((f, i) => {
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.frequency.value = f; o.type = "sine";
-      o.connect(g); g.connect(actx.destination);
-      const t = actx.currentTime + i * 0.08;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-      o.start(t); o.stop(t + 0.5);
-    });
-  } catch (_) {}
 }
 
 function loop() {
   const t = performance.now();
-  const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t;
-  frame++;
+  const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; frame++;
 
-  detectLocal();
+  detectLocal(dt);
+  if (fogTime > 0) { fogTime -= dt; if (localG.pinch.active) { const p = toCanvas(localG.pinch, 0); FX.wipeFog(0, p.x / MID, p.y / H); } else if (localG.palm) FX.wipeFog(0, localG.palm.x, localG.palm.y); if (fogTime <= 0) FX.setFog(0, false); }
 
-  // camera shake decays
-  shake *= 0.86; if (shake < 0.01) shake = 0;
-  const sx = shake ? rnd(-1, 1) * 18 * shake : 0, sy = shake ? rnd(-1, 1) * 18 * shake : 0;
-
-  ctx.setTransform(1, 0, 0, 1, sx, sy);
+  const sh = FX.getShake();
+  ctx.setTransform(1, 0, 0, 1, sh.x, sh.y);
   ctx.clearRect(-30, -30, W + 60, H + 60);
 
   drawFeed(localVideo, 0, true);
   drawFeed(remoteVideo, 1, inCall && haveRemoteVideo);
-  // soft seam
   ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(MID - 1, 0, 2, H);
 
-  sideEffects(localG, 0, dt);
-  if (inCall && remoteG.present) sideEffects(remoteG, 1, dt);
-  edgeEffects();
+  if (games.mode === "free") {
+    sideEffects(localG, 0, dt);
+    if (inCall && remoteG.present) sideEffects(remoteG, 1, dt);
+    coupleEffects(dt);
+  } else {
+    games.update(dt, localG, inCall ? remoteG : nullDummy());
+  }
 
-  stepParticles(dt);
-  drawParticles();
+  FX.stepScreen(dt); FX.stepParticles(dt); FX.stepOverlays(dt);
+  FX.drawScreen(ctx);
+  if (games.mode === "free") drawFreeOverlay(ctx); else games.draw(ctx);
+  FX.drawParticles(ctx); FX.drawOverlays(ctx);
+  drawCursors();
 
-  // fps
+  // HUD
   fpsCount++;
   if (t - lastFps > 500) { $("fpsPill").textContent = Math.round(fpsCount * 1000 / (t - lastFps)) + " fps"; fpsCount = 0; lastFps = t; }
-  // gesture readout
-  const tags = [];
-  if (localG.heart) tags.push("🫶"); if (localG.smile > 0.4) tags.push("😀");
-  if (localG.kiss > 0.5) tags.push("😘"); if (localG.wave) tags.push("👋");
-  if (localG.peace) tags.push("✌️"); if (localG.thumbs) tags.push("👍");
-  $("gesturePill").textContent = tags.length ? tags.join(" ") : "—";
-
+  $("gesturePill").textContent = readout(localG);
   requestAnimationFrame(loop);
+}
+const _dummy = G.blankState();
+function nullDummy() { return _dummy; }
+
+function readout(g) {
+  const x = [];
+  if (g.two.heart) x.push("🫶"); if (g.face.smile > 0.4) x.push("😀"); if (g.face.kiss > 0.5) x.push("😘");
+  if (g.wave) x.push("👋"); if (g.poses.peace) x.push("✌️"); if (g.poses.thumbsUp) x.push("👍");
+  if (g.poses.rockOn) x.push("🤟"); if (g.poses.point) x.push("👉"); if (g.poses.fist) x.push("✊");
+  return x.length ? x.join(" ") : "—";
 }
 
 // =====================================================================
-//  MEDIAPIPE INIT
+//  INIT + NETWORK (Trystero, reused pattern)
 // =====================================================================
 async function initModels() {
   const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
-  handLM = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: HAND_MODEL, delegate: "GPU" },
-    runningMode: "VIDEO", numHands: 2,
-  });
-  faceLM = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" },
-    runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true,
-  });
+  handLM = await HandLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: HAND_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numHands: 2 });
+  faceLM = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
 }
-
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 1280, height: 720, facingMode: "user" }, audio: true,
-  });
-  localVideo.srcObject = stream;
-  await localVideo.play();
-  return stream;
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: true });
+  localVideo.srcObject = stream; await localVideo.play(); return stream;
 }
 
-// =====================================================================
-//  NETWORKING (Trystero — mqtt + torrent, reused from WatchTogether)
-// =====================================================================
 function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); }
-const roomId = (word) => "wm" + hashStr(word.trim().toLowerCase());
+const roomId = (w) => "wm" + hashStr(w.trim().toLowerCase());
+let entries = [], primary = null, localStream = null;
 
-let entries = [], primary = null, sendGesture = null, localStream = null;
-const sharedTracks = new Set();
+function packet() {
+  const g = localG;
+  return { k: "g", present: g.present, wave: g.wave, poses: g.poses,
+    pinch: g.pinch, point: g.point, palm: g.palm, hands: g.hands, two: g.two,
+    face: { present: g.face.present, smile: +g.face.smile.toFixed(2), kiss: +g.face.kiss.toFixed(2),
+            brow: +g.face.brow.toFixed(2), frown: +g.face.frown.toFixed(2), blink: +g.face.blink.toFixed(2),
+            tongue: +g.face.tongue.toFixed(2), laugh: g.face.laugh, zoned: g.face.zoned, nose: g.face.nose, mouth: g.face.mouth } };
+}
 
 function connect(word, stream) {
   if (typeof Trystero === "undefined") { setConn("net failed"); return; }
   localStream = stream;
   const cfg = { appId: "webcam-magic", relayConfig: { redundancy: 6 } };
   const rid = roomId(word);
-  const strategies = [
-    { name: "mqtt", join: Trystero.mqtt && Trystero.mqtt.joinRoom },
-    { name: "torrent", join: Trystero.torrent && Trystero.torrent.joinRoom },
-  ];
+  const strats = [{ name: "mqtt", join: Trystero.mqtt && Trystero.mqtt.joinRoom }, { name: "torrent", join: Trystero.torrent && Trystero.torrent.joinRoom }];
   setConn("connecting…");
-  strategies.forEach((s) => {
+  strats.forEach((s) => {
     if (typeof s.join !== "function") return;
     let r; try { r = s.join(cfg, rid); } catch (_) { return; }
-    const [sendG, getG] = r.makeAction("g");
-    const entry = { name: s.name, room: r, sendG, connected: false };
-    getG((data) => { remoteG = Object.assign(blankG(), data); remoteG.present = true; });
+    const [send, get] = r.makeAction("m");
+    const entry = { room: r, send, connected: false };
+    get((data) => { if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; } else { games.onNet(data); handleFreeNet(data); } });
     r.onPeerJoin = (pid) => {
       entry.connected = true;
-      if (!primary) { primary = entry; sendGesture = (o) => entries.forEach((e) => e.connected && e.sendG(o)); }
-      reshare(r, pid);
+      amInitiator = String(Trystero.selfId) > String(pid);
+      games.setAuthority(amInitiator);
+      if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.send(o)); }
+      if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, pid); } catch (_) {} });
       setConn("connected 💚");
     };
-    r.onPeerLeave = () => {
-      entry.connected = false;
-      if (!entries.some((e) => e.connected)) { remoteG = blankG(); haveRemoteVideo = false; setConn("waiting…"); }
-    };
-    r.onPeerStream = (st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(()=>{}); haveRemoteVideo = true; };
-    r.onPeerTrack  = (tr, st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(()=>{}); haveRemoteVideo = true; };
+    r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); } };
+    r.onPeerStream = (st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
+    r.onPeerTrack = (tr, st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
     entries.push(entry);
   });
-  // share our camera+mic with everyone who joins
   setConn("waiting…");
 }
-function reshare(room, pid) {
-  if (!localStream) return;
-  localStream.getTracks().forEach((t) => {
-    try { room.addTrack(t, localStream, pid); } catch (_) {}
-  });
-}
-function leave() {
-  entries.forEach((e) => { try { e.room.leave(); } catch (_) {} });
-  entries = []; primary = null; sendGesture = null; remoteG = blankG(); haveRemoteVideo = false;
-}
-window.addEventListener("beforeunload", leave);
+window.addEventListener("beforeunload", () => entries.forEach((e) => { try { e.room.leave(); } catch (_) {} }));
 
-// throttled gesture broadcast (~12/s) — compact packet only
-setInterval(() => {
-  if (!sendGesture) return;
-  sendGesture({
-    present: localG.present, smile: +localG.smile.toFixed(2), kiss: +localG.kiss.toFixed(2),
-    laugh: localG.laugh, heart: localG.heart, peace: localG.peace, thumbs: localG.thumbs,
-    wave: localG.wave, palm: localG.palm, mouth: localG.mouth,
-  });
-}, 80);
+setInterval(() => { if (sendMsg) sendMsg(packet()); }, 80);
 
 // =====================================================================
-//  UI WIRING
+//  UI
 // =====================================================================
-function setConn(txt) { $("connPill").textContent = txt; }
+function setConn(t) { $("connPill").textContent = t; }
 
 async function boot(callMode) {
-  $("lobbyHint").textContent = "Loading magic… (downloading hand & face models, ~few MB, once)";
+  $("lobbyHint").textContent = "Loading magic… (hand + face models, ~few MB, once)";
   try {
     await initModels();
     const stream = await startCamera();
-    $("lobby").classList.add("hidden");
-    $("hud").classList.remove("hidden");
-    if (callMode) {
-      inCall = true;
-      const word = $("roomInput").value.trim();
-      connect(word, stream);
-    } else { inCall = false; setConn("solo"); }
+    $("lobby").classList.add("hidden"); $("hud").classList.remove("hidden"); $("modebar").classList.remove("hidden");
+    if (callMode) { inCall = true; connect($("roomInput").value.trim(), stream); }
+    else { inCall = false; setConn("solo"); }
     requestAnimationFrame(loop);
-  } catch (e) {
-    $("lobbyHint").textContent = "Couldn't start: " + (e.message || e) + " — allow camera & use https/localhost.";
-  }
+  } catch (e) { $("lobbyHint").textContent = "Couldn't start: " + (e.message || e) + " — allow camera & use https/localhost."; }
 }
 
 $("joinBtn").addEventListener("click", () => {
   if (!$("roomInput").value.trim()) { $("roomInput").focus(); return; }
-  // reflect room in URL so the invite link carries it
-  const u = new URL(location.href); u.searchParams.set("room", $("roomInput").value.trim());
-  history.replaceState(null, "", u);
+  const u = new URL(location.href); u.searchParams.set("room", $("roomInput").value.trim()); history.replaceState(null, "", u);
   boot(true);
 });
 $("soloBtn").addEventListener("click", () => boot(false));
-$("copyLinkBtn").addEventListener("click", async () => {
-  await navigator.clipboard.writeText(location.href);
-  $("copyLinkBtn").textContent = "✓ Copied!";
-  setTimeout(() => ($("copyLinkBtn").textContent = "🔗 Copy invite link"), 1500);
-});
+$("copyLinkBtn").addEventListener("click", async () => { await navigator.clipboard.writeText(location.href); $("copyLinkBtn").textContent = "✓ Copied!"; setTimeout(() => ($("copyLinkBtn").textContent = "🔗 Copy invite link"), 1500); });
 $("legendBtn").addEventListener("click", () => $("legend").classList.toggle("hidden"));
 $("legendClose").addEventListener("click", () => $("legend").classList.add("hidden"));
 $("muteFxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.4; });
-$("snapBtn").addEventListener("click", () => {
-  canvas.toBlob((b) => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(b); a.download = "webcam-magic.png"; a.click();
-  });
-});
+$("snapBtn").addEventListener("click", () => canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "webcam-magic.png"; a.click(); }));
 $("leaveBtn").addEventListener("click", () => location.reload());
 
-// prefill room from invite link
+// mode bar
+const MODE_ACTIONS = {
+  toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
+  draw: [["clear", "clear"]],
+  stamp: [["next", "next"], ["clear", "clear"]],
+  rps: [["start", "go"]],
+};
+function selectMode(name, btn) {
+  games.setMode(name); FX.clearParticles();
+  document.querySelectorAll("#modebar .mode").forEach((b) => b.classList.toggle("on", b === btn));
+  const bar = $("actionbar"); bar.innerHTML = "";
+  (MODE_ACTIONS[name] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.className = "ghost wide"; b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
+  bar.classList.toggle("hidden", !(MODE_ACTIONS[name]));
+}
+document.querySelectorAll("#modebar .mode").forEach((b) => b.addEventListener("click", () => selectMode(b.dataset.mode, b)));
+
 const pre = new URL(location.href).searchParams.get("room");
 if (pre) { $("roomInput").value = pre; $("copyLinkBtn").classList.remove("hidden"); }
 $("roomInput").addEventListener("input", () => $("copyLinkBtn").classList.toggle("hidden", !$("roomInput").value.trim()));

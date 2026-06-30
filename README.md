@@ -41,17 +41,38 @@ Then on GitHub: **Settings → Pages → Source: Deploy from a branch → `main`
 Your site goes live at `https://<you>.github.io/webcam-magic/` over HTTPS, so the camera
 works for anyone. Share `https://<you>.github.io/webcam-magic/?room=yourword` to invite.
 
-## Gestures
+## Free-play gestures & expressions
 
-| Do this | Get this |
-|---|---|
-| 🫶 Heart with **both hands** | Hearts flood your half — if you **both** do it at once, the whole screen erupts + chime |
-| 😘 Kiss / pucker | Flying kisses sail toward your partner |
-| 😀 Smile | Sparkles rain around you |
-| 👋 Open-hand wave | Glitter trail |
-| ✌️ Peace | Peace signs pop |
-| 👍 Thumbs up | Big +1 floats up |
-| 😂 Open-mouth grin | Screen shakes with 😂 |
+**Face (section 1):** 😀 smile → sparkles · 😘 kiss → flying lips (+ fogs partner's screen) ·
+😮 raised brows → shock · ☹️ frown → rain · 😉 hard blink → camera flash + 📸 · 😝 tongue →
+raspberry · 😂 open-mouth laugh → screen shake · 😶 zoned-out → 💤
+
+**One hand (section 2):** 👋 wave → glitter trail · 👈👉 finger-guns → confetti · ✌️ peace →
+peace pop · 👍/👎 thumbs → +1 / boo + 🍅 · 🤟 rock-on → flames + riff · 🫰 snap → spotlight ·
+👉 point → laser dot · 🤏 pinch → grab (in Toys/Draw/Stamp)
+
+**Two hands (section 3):** 🫶 heart → flood · 🖼️ frame your face → vignette · 👏 clap →
+applause · ⭕ circle → glowing orb · spread/twist → scale & rotate toys
+
+**Couple, across the seam (section 4):** 🫶 **both** make a heart → full-screen eruption + chime ·
+both smile → rainbow arc · reach to the centre together → high-five / glowing hand-hold ·
+👉 point at the seam → boop your partner's nose · ambient **mood tint** (warm when you're both
+happy, cool when sad) · blow a kiss → fog drifts over their screen and they wipe it away.
+
+## Modes (top bar)
+
+- **✨ Free** — all the passive gesture/face effects above
+- **🧸 Toys** — physics objects you pinch-grab & throw; open palm = magnet; gravity toggle; drop one on your nose to wear it (section 5)
+- **✏️ Draw** — pinch to paint together on a shared canvas, with a faint heart template (section 6)
+- **🏷️ Stamp** — pinch to place stickers; cycle the sticker (section 6)
+- **🍓 Catch / 🫧 Pop / 🏒 Hockey / ✊ RPS / 😐 Don't Laugh / 🪞 Mirror** — six mini-games (section 7)
+
+## Code layout
+
+- `effects.js` — particle engine, screen overlays (vignette/fog/flash/rainbow/spotlight/tint/shake), WebAudio sounds
+- `gestures.js` — all hand-pose & face-expression classification from MediaPipe landmarks
+- `games.js` — the stateful modes (toys, draw, stamp, games)
+- `app.js` — camera, models, render loop, free-play + couple effects, mode switching, Trystero networking
 
 ## Known limits (honest)
 
