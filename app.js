@@ -455,21 +455,23 @@ function connect(word, stream) {
   strats.forEach((s) => {
     if (typeof s.join !== "function") return;
     let r; try { r = s.join(cfg, rid); } catch (_) { return; }
-    const [send, get] = r.makeAction("m");
-    const entry = { room: r, send, connected: false };
-    get((data) => {
+    // NOTE: this Trystero build's makeAction returns an OBJECT ({ send, set onMessage }),
+    // not the standard [send, receive] array — destructuring it throws and hangs connect().
+    const action = r.makeAction("m");
+    action.onMessage = (data) => {
       if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; }
       else {
         if (data && typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") selectMode("share");
         games.onNet(data); handleFreeNet(data);
       }
-    });
+    };
+    const entry = { room: r, action, connected: false };
     r.onPeerJoin = (pid) => {
       entry.connected = true;
       amInitiator = String(Trystero.selfId) > String(pid);
       games.setAuthority(amInitiator);
-      if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.send(o)); }
-      if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, pid); } catch (_) {} });
+      if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.action.send(o)); }
+      if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚");
     };
     r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); } };
