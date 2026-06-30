@@ -21,6 +21,7 @@ export function createGames(net, host) {
   let M = null, modeName = "free", authority = true;
   const adult = true;                   // flirty deck always on
   const setAuthority = (b) => { authority = b; };
+  const meIdx = () => authority ? 0 : 1;   // this client's player index (authority = player 0)
   const setAdult = () => {};             // kept for API compat (no-op)
 
   // ---------------- TOYS (physics + grab + throw + gravity + magnet) -------
@@ -163,46 +164,58 @@ export function createGames(net, host) {
   }
 
   // ---------------- CATCH (falling hearts, catch with your hand) -----------
+  // Authority judges both players (each from their OWN self-detection), owns the
+  // items + score, and broadcasts them — so both screens show identical numbers.
   function catchMode() {
-    let items = [], score = [0, 0], spawnT = 0, time = 30;
+    let items = [], score = [0, 0], spawnT = 0, time = 30, bc = 0;
     const CH = ["❤️", "🍓", "🍰", "⭐", "🍩"];
     return {
       enter() { items = []; score = [0, 0]; time = 30; spawnT = 0; },
+      onNet(m) { if (m.t === "catch") { items = m.i; score = m.s; time = m.tm; } },
       update(dt, local, remote) {
+        if (!authority) return;                    // non-authority renders broadcast state only
         time -= dt; spawnT -= dt;
-        if (spawnT <= 0 && time > 0) { spawnT = 0.6; items.push({ x: rnd(40, W - 40), y: -30, vy: rnd(150, 260), ch: pick(CH) }); }
-        const hands = [cursorPx(local, 0), cursorPx(remote, 1)];
+        if (spawnT <= 0 && time > 0) { spawnT = 0.55; items.push({ x: rnd(0.12, 0.88), y: -0.05, vy: rnd(0.28, 0.5), owner: Math.random() < 0.5 ? 0 : 1, ch: pick(CH) }); }
+        const cur = [cursor(local), cursor(remote)];        // each in their own half-normalized space
         for (let i = items.length - 1; i >= 0; i--) {
           const it = items[i]; it.y += it.vy * dt;
-          for (let s = 0; s < 2; s++) { const h = hands[s]; if (h && Math.hypot(h.x - it.x, h.y - it.y) < 60) { score[s]++; FX.sparkleAt(it.x, it.y, 6); FX.Sound.pop(); items.splice(i, 1); break; } }
-          if (it && it.y > H + 40) items.splice(i, 1);
+          const c = cur[it.owner];
+          if (c && Math.abs(c.x - it.x) < 0.1 && Math.abs(c.y - it.y) < 0.13) { score[it.owner]++; const p = toCanvas(it, it.owner); FX.sparkleAt(p.x, p.y, 6); FX.Sound.pop(); items.splice(i, 1); continue; }
+          if (it.y > 1.1) items.splice(i, 1);
         }
+        bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "catch", i: items, s: score, tm: time }); }
       },
       draw(ctx) {
+        const mine = meIdx();
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        for (const it of items) { ctx.font = "40px serif"; ctx.fillText(it.ch, it.x, it.y); }
-        scoreboard(ctx, score, time, "Catch");
+        for (const it of items) { const p = toCanvas(it, it.owner === mine ? 0 : 1); ctx.font = "48px serif"; ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(it.ch, p.x, p.y); ctx.fillStyle = "#fff"; ctx.fillText(it.ch, p.x, p.y); }
+        scoreboard(ctx, [score[mine], score[mine ^ 1]], time, "Catch — most catches wins");
       },
     };
   }
 
   // ---------------- POP (bubbles rise, pop with a pointing finger) ---------
   function popMode() {
-    let bubbles = [], score = [0, 0], spawnT = 0;
+    let bubbles = [], score = [0, 0], spawnT = 0, bc = 0;
     return {
       enter() { bubbles = []; score = [0, 0]; },
+      onNet(m) { if (m.t === "pop") { bubbles = m.b; score = m.s; } },
       update(dt, local, remote) {
-        spawnT -= dt; if (spawnT <= 0) { spawnT = 0.5; bubbles.push({ x: rnd(40, W - 40), y: H + 30, vy: rnd(60, 130), r: rnd(26, 46), hue: rnd(0, 360) }); }
-        const tips = [pointPx(local, 0), pointPx(remote, 1)];
+        if (!authority) return;
+        spawnT -= dt; if (spawnT <= 0) { spawnT = 0.5; bubbles.push({ x: rnd(0.12, 0.88), y: 1.1, vy: rnd(0.12, 0.26), r: rnd(0.05, 0.09), hue: rnd(0, 360) | 0, owner: Math.random() < 0.5 ? 0 : 1 }); }
+        const tip = [cursor(local), cursor(remote)];
         for (let i = bubbles.length - 1; i >= 0; i--) {
-          const b = bubbles[i]; b.y -= b.vy * dt; b.x += Math.sin(b.y / 40) * 0.6;
-          for (let s = 0; s < 2; s++) { const t = tips[s]; if (t && Math.hypot(t.x - b.x, t.y - b.y) < b.r) { score[s]++; FX.burst(b.x, b.y, ["💧", "✨"], 6, 200); FX.Sound.pop(); bubbles.splice(i, 1); break; } }
-          if (b && b.y < -40) bubbles.splice(i, 1);
+          const b = bubbles[i]; b.y -= b.vy * dt;
+          const c = tip[b.owner];
+          if (c && Math.abs(c.x - b.x) < b.r + 0.03 && Math.abs(c.y - b.y) < b.r + 0.05) { score[b.owner]++; const p = toCanvas(b, b.owner); FX.burst(p.x, p.y, ["💧", "✨"], 6, 200); FX.Sound.pop(); bubbles.splice(i, 1); continue; }
+          if (b.y < -0.1) bubbles.splice(i, 1);
         }
+        bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "pop", b: bubbles, s: score }); }
       },
       draw(ctx) {
-        for (const b of bubbles) { ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = `hsl(${b.hue},80%,70%)`; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); ctx.globalAlpha = 0.9; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
-        scoreboard(ctx, score, null, "Pop — point to pop");
+        const mine = meIdx();
+        for (const b of bubbles) { const p = toCanvas(b, b.owner === mine ? 0 : 1), r = b.r * MID; ctx.save(); ctx.fillStyle = `hsl(${b.hue},85%,60%)`; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.beginPath(); ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.25, 0, 7); ctx.fill(); ctx.restore(); }
+        scoreboard(ctx, [score[mine], score[mine ^ 1]], null, "Pop — point to pop your bubbles");
       },
     };
   }
@@ -259,25 +272,24 @@ export function createGames(net, host) {
 
   // ---------------- DON'T LAUGH --------------------------------------------
   function dontLaughMode() {
-    let loser = "", t = 0;
+    let loser = "";                       // "" | "p0" | "p1"
     return {
-      enter() { loser = ""; t = 0; },
+      enter() { loser = ""; },
+      onNet(m) { if (m.t === "dl") loser = m.l; },
       update(dt, local, remote) {
-        if (loser) { t -= dt; return; }
+        if (!authority || loser) return;
         const ll = local && local.face && (local.face.laugh || local.face.smile > 0.55);
-        const rl = remote && remote.face && (remote.face.laugh || remote.face.smile > 0.55);
-        if (ll) { loser = "You laughed! 😂"; FX.burst(W / 4, H / 2, ["😂"], 16); FX.addShake(0.4); t = 4; }
-        else if (rl) { loser = "Partner laughed! 😂"; FX.burst(3 * W / 4, H / 2, ["😂"], 16); t = 4; }
+        const rl = remote && remote.present && remote.face && (remote.face.laugh || remote.face.smile > 0.55);
+        if (ll) loser = "p0"; else if (rl) loser = "p1";
+        if (loser) { FX.addShake(0.4); net.send({ t: "dl", l: loser }); }
       },
       draw(ctx) {
+        const mine = meIdx();
         ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-        if (loser) {
-          big(ctx, loser, "");
-          // clown filter over the loser's half
-          const side = loser.startsWith("You") ? 0 : 1;
-          ctx.save(); ctx.globalAlpha = 0.9; ctx.font = "200px serif"; ctx.textBaseline = "middle";
-          ctx.fillText("🤡", side * MID + MID / 2, H / 2); ctx.restore();
-        } else big(ctx, "Don't Laugh 😐", "first to smile loses → 🤡");
+        if (!loser) return big(ctx, "Don't Laugh 😐", "first to smile loses → 🤡");
+        const youLost = loser === "p" + mine;
+        big(ctx, youLost ? "You laughed! 😂" : "Partner laughed! 😂", "");
+        ctx.save(); ctx.globalAlpha = 0.92; ctx.font = "200px serif"; ctx.textBaseline = "middle"; ctx.fillText("🤡", (youLost ? 0 : 1) * MID + MID / 2, H / 2); ctx.restore();
       },
     };
   }
@@ -285,12 +297,22 @@ export function createGames(net, host) {
   // ---------------- MIRROR ME ----------------------------------------------
   function mirrorMode() {
     const POSES = [["✊ fist", "fist"], ["✋ palm", "palm"], ["✌️ peace", "peace"], ["👍 thumbs up", "thumbsUp"], ["🤟 rock", "rockOn"], ["👉 point", "point"]];
-    let target = POSES[0], t = 4, score = 0;
-    const next = () => { target = pick(POSES); t = 4; };
+    let ti = 0, t = 5, score = 0, bc = 0;
+    const next = () => { ti = Math.floor(Math.random() * POSES.length); t = 5; };
     return {
       enter() { score = 0; next(); },
-      update(dt, local) { t -= dt; if (local && local.poses && local.poses[target[1]]) { score++; FX.sparkleAt(W / 4, H / 2, 10); FX.Sound.chime(); next(); } else if (t <= 0) next(); },
-      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "Make: " + target[0], `score ${score} • ${Math.ceil(t)}s`); },
+      onNet(m) { if (m.t === "mm") { ti = m.ti; t = m.tt; score = m.s; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        t -= dt; const key = POSES[ti][1];
+        const lh = local && local.poses && local.poses[key];
+        const solo = !(remote && remote.present);
+        const rh = solo ? lh : (remote.poses && remote.poses[key]);
+        if (lh && rh) { score++; FX.sparkleAt(W / 2, H / 2, 12); FX.Sound.chime(); next(); }
+        else if (t <= 0) next();
+        bc += dt; if (bc > 0.1) { bc = 0; net.send({ t: "mm", ti, tt: t, s: score }); }
+      },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "Both make: " + POSES[ti][0], `together: ${score} • ${Math.ceil(Math.max(0, t))}s`); },
     };
   }
 
@@ -340,25 +362,28 @@ export function createGames(net, host) {
 
   // ---------------- THUMB WAR ----------------------------------------------
   function thumbWarMode() {
-    let bar = 0.5, winner = "";
+    let bar = 0.5, winner = "", bc = 0;          // winner: "" | "p0" | "p1"
     return {
       enter() { bar = 0.5; winner = ""; },
+      onNet(m) { if (m.t === "tw") { bar = m.b; winner = m.w; } },
       update(dt, local, remote) {
-        if (winner) return;
+        if (!authority || winner) return;
         if (local && local.poses && local.poses.thumbsUp) bar += dt * 0.33;
-        if (remote && remote.poses && remote.poses.thumbsUp) bar -= dt * 0.33;
+        if (remote && remote.present && remote.poses && remote.poses.thumbsUp) bar -= dt * 0.33;
         bar = clamp(bar, 0, 1);
-        if (bar >= 1) { winner = "You pinned them! 👍🎉"; FX.confetti(W / 4, H / 2, 30); FX.Sound.chime(); }
-        else if (bar <= 0) { winner = "Partner pinned you 👍"; }
+        if (bar >= 1) { winner = "p0"; FX.confetti(W / 2, H / 2, 30); FX.Sound.chime(); }
+        else if (bar <= 0) { winner = "p1"; FX.confetti(W / 2, H / 2, 30); }
+        bc += dt; if (bc > 0.08) { bc = 0; net.send({ t: "tw", b: bar, w: winner }); }
       },
       draw(ctx) {
-        ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 6;
+        const mine = meIdx();
+        ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.lineWidth = 6;
         ctx.beginPath(); ctx.moveTo(120, H / 2); ctx.lineTo(W - 120, H / 2); ctx.stroke();
         const x = 120 + bar * (W - 240);
-        ctx.font = "70px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("👍", x, H / 2 - 6);
+        ctx.font = "74px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText("👍", x, H / 2 - 6); ctx.fillStyle = "#fff"; ctx.fillText("👍", x, H / 2 - 6);
         ctx.restore();
         ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-        winner ? big(ctx, winner, "") : big(ctx, "👍 Thumb War", "both hold 👍 — push the thumb to their side!");
+        winner ? big(ctx, winner === "p" + mine ? "You pinned them! 👍🎉" : "Partner pinned you 👍", "") : big(ctx, "👍 Thumb War", "both hold 👍 — push the thumb to pin your partner!");
       },
     };
   }
@@ -667,17 +692,20 @@ export function createGames(net, host) {
   // ---------------- DANCE BATTLE (pose-match scoring) ----------------------
   function danceBattleMode() {
     const MOVES = [["✊ fist", "fist"], ["✋ palm", "palm"], ["✌️ peace", "peace"], ["🤟 rock", "rockOn"], ["👍 up", "thumbsUp"], ["👉 point", "point"], ["🤙 pinky", "pinky"]];
-    let target = MOVES[0], t = 0, score = [0, 0], hit = { 0: false, 1: false };
-    const next = () => { target = pick(MOVES); t = 2.2; hit = { 0: false, 1: false }; };
+    let ti = 0, t = 0, score = [0, 0], hit = { 0: false, 1: false }, bc = 0;
+    const next = () => { ti = Math.floor(Math.random() * MOVES.length); t = 2.2; hit = { 0: false, 1: false }; };
     return {
       enter() { score = [0, 0]; next(); },
+      onNet(m) { if (m.t === "db") { score = m.s; ti = m.ti; t = m.tt; } },
       update(dt, local, remote) {
-        t -= dt;
-        const check = (g, s) => { if (!hit[s] && g && g.poses && g.poses[target[1]]) { hit[s] = true; score[s]++; FX.sparkleAt(s === 0 ? W * 0.25 : W * 0.75, H * 0.5, 8); FX.Sound.pop(); } };
+        if (!authority) return;
+        t -= dt; const key = MOVES[ti][1];
+        const check = (g, s) => { if (!hit[s] && g && g.poses && g.poses[key]) { hit[s] = true; score[s]++; FX.sparkleAt(s === 0 ? W * 0.25 : W * 0.75, H * 0.5, 8); FX.Sound.pop(); } };
         check(local, 0); check(remote, 1);
         if (t <= 0) next();
+        bc += dt; if (bc > 0.1) { bc = 0; net.send({ t: "db", s: score, ti, tt: t }); }
       },
-      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.fillText(score[0] + "", W * 0.25, 56); ctx.fillText(score[1] + "", W * 0.75, 56); big(ctx, "do: " + target[0], "match the move in time! • " + Math.ceil(t)); },
+      draw(ctx) { const mine = meIdx(); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.fillText(score[mine] + "", W * 0.25, 56); ctx.fillText(score[mine ^ 1] + "", W * 0.75, 56); big(ctx, "do: " + MOVES[ti][0], "match the move in time! • " + Math.ceil(Math.max(0, t))); },
     };
   }
 
