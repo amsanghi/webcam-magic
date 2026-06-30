@@ -346,8 +346,9 @@ export const Sound = {
 };
 
 // Map a display-normalized point [0..1] within a half to canvas pixels.
-// side 0 (local) is selfie-mirrored; side 1 (remote) is flipped the other way
-// so a partner reaching "toward the seam" (x→1) lands at the centre (x→MID).
+// Both halves are selfie-mirrored (everyone sees a natural mirror of themselves),
+// and display-norm x is already mirrored, so this uniform mapping lines effects
+// up with the mirrored video on either side.
 export function toCanvas(pt, side) {
-  return side === 0 ? { x: pt.x * MID, y: pt.y * H } : { x: W - pt.x * MID, y: pt.y * H };
+  return { x: side * MID + pt.x * MID, y: pt.y * H };
 }

@@ -355,15 +355,14 @@ function drawFeed(video, side, has) {
   ctx.beginPath(); ctx.rect(side * MID, 0, MID, H); ctx.clip();
   if (squish[side] > 0.01) { const cx = side * MID + MID / 2; ctx.translate(cx, 0); ctx.scale(1 - 0.28 * squish[side], 1 + 0.12 * squish[side]); ctx.translate(-cx, 0); }
   if (has && video.readyState >= 2) {
-    if (side === 0) { ctx.translate(MID, 0); ctx.scale(-1, 1); }   // local: selfie mirror
+    ctx.translate(side * MID + MID, 0); ctx.scale(-1, 1);          // selfie-mirror BOTH halves
     const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
     const sc = Math.max(MID / vw, H / vh), dw = vw * sc, dh = vh * sc;
-    const ox = side === 0 ? (MID - dw) / 2 : MID + (MID - dw) / 2;
-    ctx.drawImage(video, ox, (H - dh) / 2, dw, dh);
+    ctx.drawImage(video, (MID - dw) / 2, (H - dh) / 2, dw, dh);
   } else {
     ctx.fillStyle = "#0d1018"; ctx.fillRect(side * MID, 0, MID, H);
     ctx.fillStyle = "#566"; ctx.font = "20px system-ui"; ctx.textAlign = "center";
-    ctx.fillText(side === 0 ? "you" : "waiting for partner…", side * MID + MID / 2, H / 2);
+    ctx.fillText("waiting for partner…", side * MID + MID / 2, H / 2);
   }
   ctx.restore();
 }
