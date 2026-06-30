@@ -355,7 +355,13 @@ function connect(word, stream) {
     let r; try { r = s.join(cfg, rid); } catch (_) { return; }
     const [send, get] = r.makeAction("m");
     const entry = { room: r, send, connected: false };
-    get((data) => { if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; } else { games.onNet(data); handleFreeNet(data); } });
+    get((data) => {
+      if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; }
+      else {
+        if (data && typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") selectMode("share");
+        games.onNet(data); handleFreeNet(data);
+      }
+    });
     r.onPeerJoin = (pid) => {
       entry.connected = true;
       amInitiator = String(Trystero.selfId) > String(pid);
@@ -431,12 +437,14 @@ function buildDebug() {
 
 // mode bar
 const MODE_ACTIONS = {
+  share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
   toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
   draw: [["clear", "clear"]],
   stamp: [["next", "next"], ["clear", "clear"]],
   rps: [["start", "go"]],
 };
 function selectMode(name, btn) {
+  btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);
   games.setMode(name); FX.clearParticles();
   document.querySelectorAll("#modebar .mode").forEach((b) => b.classList.toggle("on", b === btn));
   const bar = $("actionbar"); bar.innerHTML = "";
