@@ -374,6 +374,99 @@ export function createGames(net, host) {
     };
   }
 
+  // ---------------- DRESS-UP (matching hats -> twinning) -------------------
+  function dressUpMode() {
+    const HATS = ["🎩", "👑", "🧢", "🎓", "👒", "🪖", "🎀", "😎", "🤠", "👓", "🍄", "🐱"];
+    let mine = -1, theirs = -1, twin = false, lastLocal = null, lastRemote = null;
+    const drawHat = (ctx, g, side, idx) => {
+      if (!g || !g.face || !g.face.nose || idx < 0) return;
+      const n = toCanvas(g.face.nose, side), gl = HATS[idx] === "😎" || HATS[idx] === "👓";
+      ctx.save(); ctx.font = "84px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(HATS[idx], n.x, n.y + (gl ? -18 : -150)); ctx.restore();
+    };
+    return {
+      enter() { mine = theirs = -1; twin = false; },
+      action(a) { if (a === "next") { mine = (mine + 1) % HATS.length; net.send({ t: "hat", i: mine }); } if (a === "off") { mine = -1; net.send({ t: "hat", i: -1 }); } },
+      onNet(m) { if (m.t === "hat") theirs = m.i; },
+      update(dt, local, remote) { lastLocal = local; lastRemote = remote; if (mine >= 0 && mine === theirs) { if (!twin) { twin = true; FX.confetti(W / 2, H / 2, 40); FX.banner(W / 2, H * 0.3, "twinning! 👯"); FX.Sound.chime(); } } else twin = false; },
+      draw(ctx) { drawHat(ctx, lastLocal, 0, mine); drawHat(ctx, lastRemote, 1, theirs); hint(ctx, "Dress-Up — “next hat” to cycle • match your partner's hat to twin 👯"); },
+    };
+  }
+
+  // ---------------- SLOW DANCE (romantic ambient + beat hearts) ------------
+  function slowDanceMode() {
+    let acc = 0;
+    return {
+      exit() { FX.setTint(255, 150, 180, 0); FX.setVignette(0, false); FX.setVignette(1, false); },
+      update(dt) {
+        FX.setTint(255, 150, 180, 0.18); FX.setVignette(0, true); FX.setVignette(1, true);
+        const beat = FX.getBeat(); acc += dt * (2 + beat * 12);
+        if (acc > 1) { acc = 0; FX.emoji(rnd(0, W), H + 20, rnd(-20, 20), -rnd(40, 95) * (1 + beat), pick(["💗", "💖", "💕", "🤍", "🌹"]), rnd(24, 44) * (1 + beat * 0.5), rnd(3, 5), -28, { vr: 0 }); }
+      },
+      draw(ctx) { ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.textAlign = "center"; ctx.fillText("💃  slow dance  🕺  — play some music and sway together", W / 2, H - 26); ctx.restore(); },
+    };
+  }
+
+  // ---------------- TRUTH OR DARE ------------------------------------------
+  function truthDareMode() {
+    const TRUTH = ["What did you first notice about me? 😏", "Favorite memory of us? 💭", "Most embarrassing crush? 🙈", "What do you miss most right now? 🥺", "One thing you've never told me? 🤫", "Describe me in 3 words 💬", "Dream date? ✨", "Who said 'I love you' in your head first? 💘"];
+    const DARE = ["Send a flying kiss 😘", "Best dance move, go 💃", "Silliest face 🤪", "Sing 5 seconds of a song 🎤", "Show your last photo 📷", "3 air high-fives 🙌", "Wink at the camera 😉", "Say 'I love you' in a funny voice 💕"];
+    let text = "press truth or dare", kind = "";
+    return {
+      action(a) { if (a === "truth") { kind = "truth"; text = pick(TRUTH); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(DARE); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
+      onNet(m) { if (m.t === "td") { kind = m.kind; text = m.text; FX.flood(0, W, kind === "dare" ? ["🔥"] : ["💬"], 14); } },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, kind === "dare" ? "🔥 DARE" : kind === "truth" ? "💬 TRUTH" : "😈 Truth or Dare", text); },
+    };
+  }
+
+  // ---------------- MAGIC 8-BALL (shake your head to ask) ------------------
+  function eightBallMode() {
+    const A = ["yes 💯", "no 🙅", "definitely 😍", "ask again later 😴", "100% 💖", "never 😂", "maybe 🤔", "absolutely 🔥", "in your dreams 😜", "of course, my love 💕", "the stars say yes ✨", "nope 🙃"];
+    let ans = "", t = 0, prev = false;
+    return {
+      enter() { ans = ""; },
+      onNet(m) { if (m.t === "8ball") { ans = m.a; t = 4; FX.Sound.boing(); } },
+      update(dt, local) {
+        if (t > 0) t -= dt;
+        const sh = local && local.face && local.face.headShake;
+        if (sh && !prev) { ans = pick(A); t = 4; net.send({ t: "8ball", a: ans }); FX.Sound.boing(); FX.burst(W / 2, H / 2 - 100, ["🎱"], 6, 160); }
+        prev = sh;
+      },
+      draw(ctx) { ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.font = "120px serif"; ctx.fillText("🎱", W / 2, H / 2 - 100); big(ctx, ans || "🎱 Magic 8-Ball", ans ? "" : "ask a yes/no question, then shake your head"); },
+    };
+  }
+
+  // ---------------- TIC-TAC-TOE (point/pinch a cell, 2-player synced) ------
+  function ticTacToeMode() {
+    let board = Array(9).fill(""), turn = "X", winner = "", down = false;
+    const myMark = () => authority ? "X" : "O";
+    const GS = 330, gx = W / 2 - GS / 2, gy = H / 2 - GS / 2, cs = GS / 3;
+    const cellAt = (px, py) => (px < gx || px > gx + GS || py < gy || py > gy + GS) ? -1 : Math.floor((py - gy) / cs) * 3 + Math.floor((px - gx) / cs);
+    const win = () => { const L = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]]; for (const [a, b, c] of L) if (board[a] && board[a] === board[b] && board[b] === board[c]) return board[a]; return board.every((x) => x) ? "draw" : ""; };
+    return {
+      enter() { board = Array(9).fill(""); turn = "X"; winner = ""; },
+      action(a) { if (a === "reset") { board = Array(9).fill(""); turn = "X"; winner = ""; net.send({ t: "ttt-reset" }); } },
+      onNet(m) { if (m.t === "ttt") { board[m.i] = m.mark; turn = m.mark === "X" ? "O" : "X"; winner = win(); } else if (m.t === "ttt-reset") { board = Array(9).fill(""); turn = "X"; winner = ""; } },
+      update(dt, local) {
+        const d = local && local.pinch && local.pinch.active;
+        if (!winner && d && !down && turn === myMark()) {
+          const c = toCanvas(local.pinch, 0), i = cellAt(c.x, c.y);
+          if (i >= 0 && !board[i]) { board[i] = myMark(); net.send({ t: "ttt", i, mark: myMark() }); turn = myMark() === "X" ? "O" : "X"; winner = win(); if (winner) FX.confetti(W / 2, H / 2, 30); }
+        }
+        down = d;
+      },
+      draw(ctx) {
+        ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 4;
+        for (let k = 1; k < 3; k++) { ctx.beginPath(); ctx.moveTo(gx + k * cs, gy); ctx.lineTo(gx + k * cs, gy + GS); ctx.stroke(); ctx.beginPath(); ctx.moveTo(gx, gy + k * cs); ctx.lineTo(gx + GS, gy + k * cs); ctx.stroke(); }
+        ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "72px system-ui";
+        for (let i = 0; i < 9; i++) if (board[i]) { ctx.fillStyle = board[i] === "X" ? "#7cd2ff" : "#ff9aad"; ctx.fillText(board[i], gx + (i % 3) * cs + cs / 2, gy + Math.floor(i / 3) * cs + cs / 2); }
+        ctx.restore();
+        ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.textAlign = "center";
+        ctx.fillText(winner ? (winner === "draw" ? "draw! — ↺ reset" : `${winner} wins! — ↺ reset`) : `you're ${myMark()} • ${turn === myMark() ? "your turn — pinch a cell" : "partner's turn"}`, W / 2, gy - 18);
+      },
+    };
+  }
+
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
@@ -386,7 +479,8 @@ export function createGames(net, host) {
   }
   function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
 
-  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode };
+  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
+    dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
