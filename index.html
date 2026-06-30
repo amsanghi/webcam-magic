@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Webcam Magic — gesture & face party for two</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas" width="1280" height="720"></canvas>
+
+    <!-- hidden source videos -->
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <!-- lobby -->
+    <div id="lobby">
+      <h1>✨ Webcam Magic</h1>
+      <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
+        Everything runs in your browser — no server, no recording, nothing leaves your devices.</p>
+
+      <label class="field">
+        <span>Secret room word (you &amp; your partner type the same thing)</span>
+        <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
+      </label>
+
+      <div class="row">
+        <button id="joinBtn">Join call</button>
+        <button id="soloBtn" class="ghost-btn">Try solo</button>
+      </div>
+      <button id="copyLinkBtn" class="link-btn hidden">🔗 Copy invite link</button>
+      <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
+    </div>
+
+    <!-- top HUD -->
+    <div id="hud" class="hidden">
+      <span class="pill" id="connPill">solo</span>
+      <span class="pill" id="gesturePill">—</span>
+      <span class="pill" id="fpsPill">– fps</span>
+      <button class="ghost" id="legendBtn" title="What can I do?">？</button>
+      <button class="ghost" id="snapBtn" title="Snapshot">📸</button>
+      <button class="ghost" id="muteFxBtn" title="Toggle effects">✨</button>
+      <button class="ghost" id="leaveBtn" title="Leave">✕</button>
+    </div>
+
+    <!-- legend -->
+    <div id="legend" class="hidden">
+      <h2>Try these ✦</h2>
+      <ul>
+        <li><b>🫶 Heart</b> — make a heart with <i>both hands</i> → hearts flood your side. If you <i>both</i> do it together → the whole screen erupts 💞</li>
+        <li><b>😘 Kiss / pucker</b> → blow flying kisses that sail across to your partner</li>
+        <li><b>😀 Smile</b> → sparkles rain around you</li>
+        <li><b>👋 Wave</b> (open hand, moving) → glitter trail</li>
+        <li><b>✌️ Peace</b> → peace signs pop &nbsp;•&nbsp; <b>👍 Thumbs up</b> → big +1</li>
+        <li><b>😂 Big laugh</b> (open-mouth grin) → screen shakes with 😂</li>
+      </ul>
+      <button class="ghost" id="legendClose">Got it</button>
+    </div>
+  </div>
+
+  <!-- proven serverless rendezvous (mqtt + torrent), reused from WatchTogether -->
+  <script src="./trystero.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
