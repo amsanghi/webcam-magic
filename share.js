@@ -28,7 +28,8 @@ function toDataURL(src, natW, natH, max = 720, q = 0.6) {
   try { return c.toDataURL("image/jpeg", q); } catch (_) { return null; }   // tainted (cross-origin) → skip
 }
 
-export function createShareMode(net) {
+export function createShareMode(net, sideFn) {
+  const mine = () => (sideFn ? sideFn() : 0);   // this client's fixed side (0=left)
   return function shareMode() {
     let panels = [];                 // {id,kind,src,natW,natH,cx,cy,scale,rot,pdf,remote,active}
     let counter = 0, grabbed = null, prevSpread = null, prevTwist = null;
@@ -37,7 +38,7 @@ export function createShareMode(net) {
     const active = () => panels.filter((p) => !p.remote).slice(-1)[0] || null;
 
     function pxRect(p) {
-      const c = toCanvas({ x: p.cx, y: p.cy }, p.remote ? 1 : 0);
+      const c = toCanvas({ x: p.cx, y: p.cy }, p.remote ? 1 - mine() : mine());
       const w = p.scale * MID, h = w * (p.natH / p.natW);
       return { cx: c.x, cy: c.y, w, h };
     }
@@ -141,7 +142,7 @@ export function createShareMode(net) {
       update(dt, local) {
         const t = performance.now();
         const pinch = local && local.pinch && local.pinch.active;
-        const cp = pinch ? toCanvas(local.pinch, 0) : null;
+        const cp = pinch ? toCanvas(local.pinch, mine()) : null;
 
         // grab / move
         if (pinch && cp) {
@@ -153,7 +154,7 @@ export function createShareMode(net) {
             }
           }
           const p = panels.find((x) => x.id === grabbed);
-          if (p) { p.cx = clamp(cp.x / MID, 0, 1); p.cy = clamp(cp.y / H, 0, 1); }
+          if (p) { p.cx = clamp((cp.x - mine() * MID) / MID, 0, 1); p.cy = clamp(cp.y / H, 0, 1); }
         } else grabbed = null;
 
         // two-hand spread→scale, twist→rotate on the active/grabbed panel
