@@ -371,8 +371,9 @@ function drawCursors() {
     if (!g) continue;
     for (const h of (g.hands || [])) {
       const p = toCanvas(h, side);
-      ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, 7); ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.6)";
+      ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, 7); ctx.stroke();
+      ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke(); ctx.restore();
     }
   }
 }

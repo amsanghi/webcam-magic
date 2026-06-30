@@ -80,11 +80,14 @@ export function drawParticles(ctx) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of particles) {
     const t = p.life / p.max;
-    const grow = p.pop ? Math.min(1, (1 - t) * 5) : 1;
+    const grow = p.pop ? Math.min(1, (1 - t) * 6) : 1;
     ctx.save();
-    ctx.globalAlpha = Math.min(1, t * 2.4);
+    ctx.globalAlpha = t < 0.14 ? t / 0.14 : 1;          // full opacity until the last sliver of life
     ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    ctx.font = `${p.size * (0.6 + 0.4 * grow)}px serif`;
+    const sz = p.size * (0.7 + 0.3 * grow);
+    ctx.font = `${sz}px serif`;
+    ctx.lineJoin = "round"; ctx.lineWidth = Math.max(3, sz * 0.12);   // dark outline so it pops on any background
+    ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.strokeText(p.ch, 0, 0);
     ctx.fillText(p.ch, 0, 0);
     ctx.restore();
   }
@@ -251,8 +254,8 @@ function stepTravel(dt) {
   }
 }
 function drawTravel(ctx) {
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const tr of travelers) { ctx.font = "44px serif"; ctx.fillText(tr.ch, tr.x, tr.y); }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "44px serif"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.7)";
+  for (const tr of travelers) { ctx.strokeText(tr.ch, tr.x, tr.y); ctx.fillText(tr.ch, tr.x, tr.y); }
 }
 
 // ---------------------------------------------------------------------------
