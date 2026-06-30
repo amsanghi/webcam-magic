@@ -17,7 +17,7 @@ function cursor(g) {
   return null;
 }
 
-export function createGames(net) {
+export function createGames(net, host) {
   let M = null, modeName = "free", authority = true;
   const setAuthority = (b) => { authority = b; };
 
@@ -292,6 +292,88 @@ export function createGames(net) {
     };
   }
 
+  // ---------------- PHOTO BOOTH (countdown -> framed keepsake) -------------
+  function photoboothMode() {
+    let phase = "idle", t = 0, snap = 0;
+    const drawFrame = (ctx) => {
+      ctx.save(); ctx.lineWidth = 14; ctx.strokeStyle = "#ff5c8a"; ctx.strokeRect(20, 20, W - 40, H - 40);
+      ctx.font = "44px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ["💕", "💖", "💗", "💞"].forEach((e, i) => ctx.fillText(e, 60 + (i % 2) * (W - 120), 60 + (i > 1 ? H - 120 : 0)));
+      ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(W / 2 - 150, H - 64, 300, 40);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 24px system-ui";
+      ctx.fillText("♥ us · " + new Date().toISOString().slice(0, 10) + " ♥", W / 2, H - 44);
+      ctx.restore();
+    };
+    return {
+      action(a) { if (a === "shoot" && phase === "idle") { phase = "count"; t = 3; net.send({ t: "pb-shoot" }); } },
+      onNet(m) { if (m.t === "pb-shoot" && phase === "idle") { phase = "count"; t = 3; } },
+      update(dt) {
+        if (phase === "count") { t -= dt; if (t <= 0) { phase = "snap"; snap = 2; } }
+        else if (phase === "snap") { snap--; if (snap <= 0) { if (host && host.snapshot) host.snapshot("our-photobooth"); FX.flash(); phase = "idle"; } }
+      },
+      draw(ctx) { drawFrame(ctx); if (phase === "count") { ctx.fillStyle = "#fff"; ctx.textAlign = "center"; big(ctx, Math.ceil(t) + "", "smile! 😊"); } },
+    };
+  }
+
+  // ---------------- SYNC TEST (both throw a finger-count answer) -----------
+  function syncTestMode() {
+    const Q = ["How many kids one day? 🍼", "Pineapple on pizza? 🍍 (1=yes…5=no)", "Rate today 1-5 ⭐", "How much do you love me? ✋", "Beach🏖 1 … 5 mountains⛰", "Cats🐱 1 … 5 dogs🐶"];
+    let phase = "idle", t = 0, qi = 0, mine = 0, theirs = 0, res = "", score = 0;
+    const start = (i) => { qi = i; phase = "count"; t = 3; res = ""; };
+    return {
+      action(a) { if (a === "go" && phase !== "count") { const i = Math.floor(Math.random() * Q.length); start(i); net.send({ t: "st-go", q: i }); } },
+      onNet(m) { if (m.t === "st-go") start(m.q); },
+      update(dt, local, remote) {
+        if (phase === "count") { t -= dt; if (t <= 0) { mine = local ? local.fingers : 0; theirs = remote ? remote.fingers : 0; res = mine === theirs ? "in sync! 💕" : "not quite 😜"; if (mine === theirs) { score++; FX.flood(0, W, ["💕", "✨"], 40); FX.Sound.chime(); } phase = "done"; t = 3.5; } }
+        else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
+      },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (phase === "idle") big(ctx, "💘 Sync Test", "press “go” — answer with your fingers • score " + score);
+        else if (phase === "count") big(ctx, Q[qi], "throw your answer in… " + Math.ceil(t));
+        else big(ctx, `you ${mine} · partner ${theirs}`, res);
+      },
+    };
+  }
+
+  // ---------------- THUMB WAR ----------------------------------------------
+  function thumbWarMode() {
+    let bar = 0.5, winner = "";
+    return {
+      enter() { bar = 0.5; winner = ""; },
+      update(dt, local, remote) {
+        if (winner) return;
+        if (local && local.poses && local.poses.thumbsUp) bar += dt * 0.33;
+        if (remote && remote.poses && remote.poses.thumbsUp) bar -= dt * 0.33;
+        bar = clamp(bar, 0, 1);
+        if (bar >= 1) { winner = "You pinned them! 👍🎉"; FX.confetti(W / 4, H / 2, 30); FX.Sound.chime(); }
+        else if (bar <= 0) { winner = "Partner pinned you 👍"; }
+      },
+      draw(ctx) {
+        ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(120, H / 2); ctx.lineTo(W - 120, H / 2); ctx.stroke();
+        const x = 120 + bar * (W - 240);
+        ctx.font = "70px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("👍", x, H / 2 - 6);
+        ctx.restore();
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        winner ? big(ctx, winner, "") : big(ctx, "👍 Thumb War", "both hold 👍 — push the thumb to their side!");
+      },
+    };
+  }
+
+  // ---------------- DATE SPINNER -------------------------------------------
+  function spinnerMode() {
+    const IDEAS = ["cook together 🍳", "stargaze 🌌", "play 20 questions ❓", "watch a movie 🎬", "dance 💃", "order the same food 🍜", "draw each other ✏️", "plan a trip ✈️", "karaoke 🎤", "truth or dare 😈", "make a playlist 🎧", "bake something 🧁"];
+    let phase = "idle", t = 0, idx = 0, shown = "spin for a date idea";
+    const start = (i) => { idx = i; phase = "spin"; t = 1.6; };
+    return {
+      action(a) { if (a === "spin" && phase !== "spin") { const i = Math.floor(Math.random() * IDEAS.length); start(i); net.send({ t: "spin", idx: i }); } },
+      onNet(m) { if (m.t === "spin") start(m.idx); },
+      update(dt) { if (phase === "spin") { t -= dt; if (t <= 0) { shown = IDEAS[idx]; phase = "done"; FX.flood(0, W, ["🎉", "💕"], 30); FX.Sound.chime(); } else if (t > 0.2) shown = IDEAS[Math.floor(Math.random() * IDEAS.length)]; } },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "🎡 " + shown, phase === "done" ? "go do it! 💞" : "press spin"); },
+    };
+  }
+
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
@@ -304,7 +386,7 @@ export function createGames(net) {
   }
   function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
 
-  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode };
+  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();

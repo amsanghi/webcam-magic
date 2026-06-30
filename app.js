@@ -25,7 +25,8 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
-const games = createGames(net);
+const host = { snapshot: (name) => canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); }) };
+const games = createGames(net, host);
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -122,6 +123,16 @@ function drawFreeOverlay(ctx) {
     }
   }
   tossDraw(ctx);
+  // love-o-meter bar (section 4)
+  if (inCall && loveMeter > 0.02) {
+    const w = 220, x = W / 2 - w / 2, y = 74;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(x - 4, y - 4, w + 8, 16);
+    ctx.fillStyle = "#ff5c8a"; ctx.fillRect(x, y, w * loveMeter, 8);
+    ctx.fillStyle = "#fff"; ctx.font = "13px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("❤️‍🔥 love-o-meter " + Math.round(loveMeter * 100) + "%", W / 2, y - 8);
+    ctx.restore();
+  }
 }
 
 // ---- cross-seam toss / pinch-fling (sections 2 & 4) -----------------------
@@ -140,11 +151,14 @@ function tossUpdate(dt) {
     if (o) { o.vx = heldPrev ? (p.x - heldPrev.x) / dt : 0; o.vy = heldPrev ? (p.y - heldPrev.y) / dt : 0; o.x = p.x; o.y = p.y; }
     heldPrev = p;
   } else { heldThrow = null; heldPrev = null; }
+  const myMouth = localG.face && localG.face.mouth ? toCanvas(localG.face.mouth, 0) : null;
   for (let i = throws.length - 1; i >= 0; i--) {
     const o = throws[i]; if (i === heldThrow) continue;
     o.vy += 700 * dt; o.x += o.vx * dt; o.y += o.vy * dt; o.vx *= 0.995;
     if (o.y > H - o.s / 2) { o.y = H - o.s / 2; o.vy *= -0.5; o.vx *= 0.8; }
     if (o.x < o.s / 2) { o.x = o.s / 2; o.vx *= -0.6; }
+    // 🍰 feed-me: an incoming throwable that reaches your mouth gets "eaten"
+    if (myMouth && Math.hypot(o.x - myMouth.x, o.y - myMouth.y) < 55) { FX.burst(myMouth.x, myMouth.y, ["😋", "💕"], 8, 180); FX.Sound.pop(); throws.splice(i, 1); continue; }
     if (inCall && o.x > MID) { net.send({ t: "toss", yN: o.y / H, ch: o.ch }); throws.splice(i, 1); continue; }   // hand off to partner
     if (!inCall && o.x > W - o.s / 2) { o.x = W - o.s / 2; o.vx *= -0.6; }
   }
@@ -166,11 +180,27 @@ function coupleEffects(dt) {
   // synchronized smile -> rainbow
   edge("syncSmile", localG.face.smile > G.TUNE.smile + 0.05 && remoteG.face.smile > G.TUNE.smile + 0.05, () => { FX.triggerRainbow(); FX.Sound.chime(); });
 
-  // hands meeting at the seam: high-five (edge) + hold-hands link (held)
+  // hands meeting at the seam: high-five (edge) + hold-hands link (held) + love-o-meter
   const lHand = nearSeam(localG, 0), rHand = nearSeam(remoteG, 1);
   const meeting = lHand && rHand && Math.abs(lHand.y - rHand.y) < 0.22;
   edge("highfive", meeting, () => { FX.burst(MID, ((lHand.y + rHand.y) / 2) * H, ["🙌", "✋", "✨"], 16, 360); FX.addShake(0.3); FX.Sound.pop(); });
-  if (meeting) FX.link(MID - 4, lHand.y * H, MID + 4, rHand.y * H);
+  if (meeting) {
+    FX.link(MID - 4, lHand.y * H, MID + 4, rHand.y * H);
+    loveMeter = Math.min(1, loveMeter + dt * 0.22);
+    if (loveMeter >= 1 && !loveMaxed) { loveMaxed = true; FX.flood(0, W, ["💖", "🎆", "✨", "💞"], 90, true); FX.burst(W / 2, H / 2, ["🎆", "💖"], 40, 520); FX.Sound.chime(); FX.banner(W / 2, H * 0.4, "soulmates 💞"); }
+  } else { loveMeter = Math.max(0, loveMeter - dt * 0.12); if (loveMeter <= 0) loveMaxed = false; }
+
+  // 💋 kiss meter — both pucker at once
+  edge("mutualKiss", localG.face.kiss > G.TUNE.kiss && remoteG.face.kiss > G.TUNE.kiss, () => {
+    FX.burst(MID, H * 0.4, ["💋", "❤️", "💕", "💗"], 26, 420); FX.addShake(0.25); FX.Sound.chime();
+    kissesToday = bumpDaily("wm_kiss"); FX.banner(MID, H * 0.32, `💋 kiss #${kissesToday}`);
+  });
+  // 🤙 pinky promise — both make a pinky
+  edge("pinky", localG.poses.pinky && remoteG.poses.pinky, () => { FX.link(MID - 30, H * 0.45, MID + 30, H * 0.45); FX.burst(MID, H * 0.45, ["🤙", "✨"], 10, 200); FX.banner(MID, H * 0.34, "pinky promise 🤙"); FX.Sound.chime(); });
+  // 🫂 send a hug — both open arms wide
+  edge("hug", localG.two.armsWide && remoteG.two.armsWide, () => { FX.emoji(MID, H / 2, 0, 0, "🫂", 220, 1.8, 0); FX.flood(0, W, ["💗", "💓"], 30); FX.setTint(255, 150, 180, 0.25); FX.banner(W / 2, H * 0.3, "big hug 🫂"); FX.Sound.chime(); });
+  // 🌠 make a wish — both close eyes together
+  edge("wish", localG.face.blink > G.TUNE.blink && remoteG.face.blink > G.TUNE.blink, () => { FX.travel({ x: 20, y: 40 }, () => ({ x: W - 20, y: H * 0.5 }), "🌠", () => FX.burst(W - 60, H * 0.5, ["✨", "⭐"], 12, 200)); FX.banner(W / 2, H * 0.28, "make a wish 🌠"); FX.Sound.chime(); });
 
   // boop: local points toward the seam -> lands on partner's nose
   edge("boop", localG.point.active && localG.point.x > 0.9 && remoteG.face.nose, () => {
@@ -195,6 +225,27 @@ let fogTime = 0;
 function handleFreeNet(m) {
   if (m.t === "fog") { FX.setFog(0, true); fogTime = 3; }
   else if (m.t === "toss") throws.push({ x: MID - 20, y: (m.yN || 0.5) * H, vx: -300, vy: -120, ch: m.ch || "💖", s: 46 });
+  else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
+}
+
+// 💌 sweet-nothings generator
+const SWEET = ["i love you 💛", "miss you 🥺", "you're cute 😘", "thinking of you 💭",
+  "my favorite person ✨", "wish you were here 🫶", "you + me 💕", "best girl 🌸",
+  "ily to the moon 🌙", "marry me? 💍", "you make me smile 😊", "cutie patootie 🥰"];
+function sendSweet() {
+  const t = SWEET[Math.floor(Math.random() * SWEET.length)];
+  FX.banner(W / 2, H * 0.3, t); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime();
+  net.send({ t: "love-msg", text: t });
+}
+
+// ---- couple meters / counters ---------------------------------------------
+let loveMeter = 0, loveMaxed = false, kissesToday = 0;
+function bumpDaily(key) {
+  const today = new Date().toISOString().slice(0, 10);
+  let s = {}; try { s = JSON.parse(localStorage.getItem(key) || "{}"); } catch (_) {}
+  const n = (s.date === today ? s.n || 0 : 0) + 1;
+  try { localStorage.setItem(key, JSON.stringify({ date: today, n })); } catch (_) {}
+  return n;
 }
 
 // ---- couple streak (session combo + daily, localStorage) ------------------
@@ -336,7 +387,7 @@ let entries = [], primary = null, localStream = null;
 
 function packet() {
   const g = localG;
-  return { k: "g", present: g.present, wave: g.wave, poses: g.poses,
+  return { k: "g", present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
     pinch: g.pinch, point: g.point, palm: g.palm, hands: g.hands, two: g.two,
     face: { present: g.face.present, smile: +g.face.smile.toFixed(2), kiss: +g.face.kiss.toFixed(2),
             brow: +g.face.brow.toFixed(2), frown: +g.face.frown.toFixed(2), blink: +g.face.blink.toFixed(2),
@@ -412,6 +463,7 @@ $("muteFxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.o
 $("snapBtn").addEventListener("click", () => canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "webcam-magic.png"; a.click(); }));
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
+$("loveBtn").addEventListener("click", sendSweet);
 
 // live tuning panel — sliders bound to gestures.TUNE
 const TUNE_META = {
@@ -442,6 +494,9 @@ const MODE_ACTIONS = {
   draw: [["clear", "clear"]],
   stamp: [["next", "next"], ["clear", "clear"]],
   rps: [["start", "go"]],
+  photobooth: [["shoot", "📸 3·2·1"]],
+  synctest: [["go", "go"]],
+  spinner: [["spin", "🎡 spin"]],
 };
 function selectMode(name, btn) {
   btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);
