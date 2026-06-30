@@ -15,6 +15,13 @@ const $ = (id) => document.getElementById(id);
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
 const localVideo = $("localVideo"), remoteVideo = $("remoteVideo");
 
+// Render at higher-than-logical resolution so the feed isn't upscaled/blurry.
+// Drawing math stays in the logical 1280x720 space; the context is scaled by RS,
+// so the canvas backing store is RS× sharper (e.g. 2560x1440 on a retina screen).
+const RS = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
+ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+
 let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false;
 let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
@@ -379,8 +386,8 @@ function loop() {
   if (fogTime > 0) { fogTime -= dt; if (localG.pinch.active) { const p = toCanvas(localG.pinch, 0); FX.wipeFog(0, p.x / MID, p.y / H); } else if (localG.palm) FX.wipeFog(0, localG.palm.x, localG.palm.y); if (fogTime <= 0) FX.setFog(0, false); }
 
   const sh = FX.getShake();
-  ctx.setTransform(1, 0, 0, 1, sh.x, sh.y);
-  ctx.clearRect(-30, -30, W + 60, H + 60);
+  ctx.setTransform(RS, 0, 0, RS, sh.x * RS, sh.y * RS);
+  ctx.clearRect(-60, -60, W + 120, H + 120);
 
   drawFeed(localVideo, 0, true);
   drawFeed(remoteVideo, 1, inCall && haveRemoteVideo);
@@ -428,7 +435,10 @@ async function initModels() {
   faceLM = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
 }
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: true });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 }, facingMode: "user" },
+    audio: { echoCancellation: true, noiseSuppression: true },
+  });
   localVideo.srcObject = stream; await localVideo.play(); return stream;
 }
 
