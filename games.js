@@ -24,7 +24,9 @@ export function createGames(net) {
   function toysMode() {
     const TOY = ["🧸", "🎈", "⚽", "📷", "🍕", "🪀", "🍩"];
     let objs = [], gravity = true, grabbed = { 0: null, 1: null };
-    const spawn = () => objs.push({ x: rnd(W * 0.2, W * 0.8), y: rnd(80, 240), vx: 0, vy: 0, s: rnd(46, 72), ch: pick(TOY), stick: null });
+    let prevSpread = null, prevTwist = null, prevShake = { 0: false, 1: false };
+    const spawn = () => objs.push({ x: rnd(W * 0.2, W * 0.8), y: rnd(80, 240), vx: 0, vy: 0, s: rnd(46, 72), rot: 0, ch: pick(TOY), stick: null });
+    const angDelta = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
     return {
       enter() { objs = []; for (let i = 0; i < 5; i++) spawn(); },
       action(a) { if (a === "gravity") gravity = !gravity; if (a === "spawn") spawn(); if (a === "clear") objs = []; },
@@ -55,7 +57,19 @@ export function createGames(net) {
             const np = toCanvas(g.face.nose, side);
             for (const o of objs) if (!o.stick && grabbed[side] == null && Math.hypot(o.x - np.x, o.y - np.y) < 46 && Math.abs(o.vx) + Math.abs(o.vy) < 60) o.stick = side;
           }
+          // head-shake scatters everything (rising edge)
+          if (g.face && g.face.headShake && !prevShake[side]) for (const o of objs) { o.vx += rnd(-450, 450); o.vy += rnd(-560, -120); o.stick = null; }
+          prevShake[side] = g.face && g.face.headShake;
         }
+        // two-hand spread -> scale, twist -> rotate the grabbed toy
+        const gi = grabbed[0] != null ? grabbed[0] : grabbed[1];
+        const th = local && local.two && local.two.spread.active && gi != null && objs[gi];
+        if (th) {
+          const o = objs[gi];
+          if (prevSpread != null) o.s = clamp(o.s * (1 + (local.two.spread.dist - prevSpread) * 2.2), 24, 220);
+          if (prevTwist != null) o.rot += angDelta(local.two.twist.angle, prevTwist);
+          prevSpread = local.two.spread.dist; prevTwist = local.two.twist.angle;
+        } else { prevSpread = prevTwist = null; }
         // integrate
         for (let i = 0; i < objs.length; i++) {
           const o = objs[i];
@@ -77,8 +91,8 @@ export function createGames(net) {
       },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        for (const o of objs) { ctx.save(); ctx.font = `${o.s}px serif`; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 10; ctx.fillText(o.ch, o.x, o.y); ctx.restore(); }
-        hint(ctx, "Toys — pinch to grab & throw • open palm = magnet • drop on your nose to wear it");
+        for (const o of objs) { ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.rot || 0); ctx.font = `${o.s}px serif`; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 10; ctx.fillText(o.ch, 0, 0); ctx.restore(); }
+        hint(ctx, "Toys — pinch grab/throw • two hands: spread=resize, twist=rotate • palm=magnet • shake head to scatter • drop on nose to wear");
       },
     };
   }
@@ -252,7 +266,16 @@ export function createGames(net) {
         if (ll) { loser = "You laughed! 😂"; FX.burst(W / 4, H / 2, ["😂"], 16); FX.addShake(0.4); t = 4; }
         else if (rl) { loser = "Partner laughed! 😂"; FX.burst(3 * W / 4, H / 2, ["😂"], 16); t = 4; }
       },
-      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; loser ? big(ctx, loser, "") : big(ctx, "Don't Laugh 😐", "first to smile loses"); },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (loser) {
+          big(ctx, loser, "");
+          // clown filter over the loser's half
+          const side = loser.startsWith("You") ? 0 : 1;
+          ctx.save(); ctx.globalAlpha = 0.9; ctx.font = "200px serif"; ctx.textBaseline = "middle";
+          ctx.fillText("🤡", side * MID + MID / 2, H / 2); ctx.restore();
+        } else big(ctx, "Don't Laugh 😐", "first to smile loses → 🤡");
+      },
     };
   }
 

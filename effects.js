@@ -44,9 +44,17 @@ export function fountain(x, y, chars, n, spd = 520) {
   }
 }
 export function sparkleAt(x, y, n = 1) {
+  const b = 1 + 0.7 * beatVal;                            // beat-reactive size
   for (let i = 0; i < n; i++)
     emoji(x + rnd(-46, 46), y + rnd(-46, 46), rnd(-30, 30), rnd(-70, 30),
-          pick(["✨", "⭐", "💫", "🌟"]), rnd(15, 30), rnd(0.7, 1.5), 200);
+          pick(["✨", "⭐", "💫", "🌟"]), rnd(15, 30) * b, rnd(0.7, 1.5), 200);
+}
+// rising balloons + a "LOL" tag (laugh)
+export function balloons(x, n = 6) {
+  for (let i = 0; i < n; i++)
+    emoji(x + rnd(-120, 120), H + rnd(0, 80), rnd(-30, 30), -rnd(150, 260),
+          pick(["🎈", "🎈", "🎈"]), rnd(34, 52), rnd(2.4, 3.6), -120, { vr: 0 });
+  emoji(x + rnd(-60, 60), H * 0.7, 0, -200, "LOL", 52, 2.2, -40, { vr: 0 });
 }
 export function confetti(x, y, n = 18) {
   for (let i = 0; i < n; i++) {
@@ -80,6 +88,7 @@ export function drawParticles(ctx) {
     ctx.fillText(p.ch, 0, 0);
     ctx.restore();
   }
+  drawTravel(ctx);
 }
 export function clearParticles() { particles.length = 0; }
 export const particleCount = () => particles.length;
@@ -93,9 +102,15 @@ const screen = {
   tint: { r: 255, g: 120, b: 160, a: 0, aT: 0 },
   spot: [null, null],            // {x,y} per side, or null
   fog: [0, 0], fogT: [0, 0], holes: [[], []],
+  concert: [0, 0], concertT: [0, 0],
   shake: 0,
 };
 let rainbow = 0;                 // ttl seconds for the arc
+let beatVal = 0;                 // 0..1 audio energy (beat-reactive)
+let concertPhase = 0;
+export function setBeat(v) { beatVal = Math.max(0, Math.min(1, v)); }
+export function getBeat() { return beatVal; }
+export function setConcert(side, on) { screen.concertT[side] = on ? 1 : 0; }
 
 export function setVignette(side, on) { screen.vigT[side] = on ? 1 : 0; }
 export function setSpotlight(side, pt) { screen.spot[side] = pt; }
@@ -113,15 +128,19 @@ export function stepScreen(dt) {
   for (let s = 0; s < 2; s++) {
     screen.vig[s] = ease(screen.vig[s], screen.vigT[s], 0.15);
     screen.fog[s] = ease(screen.fog[s], screen.fogT[s], 0.08);
+    screen.concert[s] = ease(screen.concert[s], screen.concertT[s], 0.2);
     for (const h of screen.holes[s]) { h.r = Math.min(140, h.r + 220 * dt); h.t -= dt * 0.12; }
     screen.holes[s] = screen.holes[s].filter((h) => h.t > 0);
   }
   screen.tint.a = ease(screen.tint.a, screen.tint.aT, 0.05);
   screen.shake *= 0.86;
   if (rainbow > 0) rainbow -= dt;
+  concertPhase += dt * (6 + beatVal * 14);
+  stepWeather(dt); stepTravel(dt);
 }
 
 export function drawScreen(ctx) {
+  drawWeather(ctx);
   // mood tint (whole frame)
   if (screen.tint.a > 0.01) {
     ctx.save(); ctx.globalAlpha = screen.tint.a;
@@ -147,6 +166,19 @@ export function drawScreen(ctx) {
       g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.72)");
       ctx.save(); ctx.beginPath(); ctx.rect(s * MID, 0, MID, H); ctx.clip();
       ctx.fillStyle = g; ctx.fillRect(s * MID, 0, MID, H); ctx.restore();
+    }
+    // concert mode: colored light bands sweeping the half (rock-on)
+    if (screen.concert[s] > 0.01) {
+      const cols = ["#ff3b6b", "#3bd1ff", "#ffe23b", "#9b6bff"];
+      ctx.save(); ctx.beginPath(); ctx.rect(s * MID, 0, MID, H); ctx.clip();
+      ctx.globalCompositeOperation = "screen"; ctx.globalAlpha = 0.4 * screen.concert[s];
+      cols.forEach((c, i) => {
+        const x = s * MID + MID / 2 + Math.sin(concertPhase + i * 1.7) * MID * 0.4;
+        const g = ctx.createRadialGradient(x, H * 0.2, 0, x, H * 0.2, 260);
+        g.addColorStop(0, c); g.addColorStop(1, "transparent");
+        ctx.fillStyle = g; ctx.fillRect(s * MID, 0, MID, H);
+      });
+      ctx.restore();
     }
     // fog with wipe holes
     if (screen.fog[s] > 0.01) {
@@ -178,12 +210,60 @@ export function drawScreen(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// TRANSIENT OVERLAYS (flash, links, custom draws with ttl)
+// REACTION WEATHER (section 8): drifting background motes set by collective mood
+// ---------------------------------------------------------------------------
+const weather = { type: "none", inten: 0, motes: [] };
+export function setWeather(type, inten) { weather.type = type; weather.inten = inten; }
+function stepWeather(dt) {
+  const want = weather.type === "none" ? 0 : Math.round(weather.inten * 60);
+  while (weather.motes.length < want) weather.motes.push({ x: rnd(0, W), y: rnd(0, H), v: rnd(20, 70), p: rnd(0, 6) });
+  while (weather.motes.length > want) weather.motes.pop();
+  for (const m of weather.motes) {
+    if (weather.type === "rain") { m.y += (m.v + 180) * dt; if (m.y > H) { m.y = -10; m.x = rnd(0, W); } }
+    else { m.y -= m.v * dt * 0.4; m.x += Math.sin((m.p += dt)) * 12 * dt; if (m.y < -10) { m.y = H + 10; m.x = rnd(0, W); } }
+  }
+}
+function drawWeather(ctx) {
+  if (weather.type === "none" || !weather.motes.length) return;
+  ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const ch = weather.type === "rain" ? "💧" : weather.type === "stars" ? "·" : "✨";
+  ctx.globalAlpha = 0.35 * weather.inten;
+  for (const m of weather.motes) {
+    if (weather.type === "stars") { ctx.fillStyle = "#fff"; ctx.font = "14px serif"; ctx.fillText("✦", m.x, m.y); }
+    else { ctx.font = "16px serif"; ctx.fillText(ch, m.x, m.y); }
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// HOMING TRAVELERS (section 4): a kiss that flies across to the partner's face
+// ---------------------------------------------------------------------------
+const travelers = [];
+export function travel(from, toFn, ch, onArrive) { travelers.push({ x: from.x, y: from.y, toFn, ch, onArrive, t: 0, dur: 0.9 }); }
+function stepTravel(dt) {
+  for (let i = travelers.length - 1; i >= 0; i--) {
+    const tr = travelers[i]; tr.t += dt / tr.dur;
+    const dst = tr.toFn(); if (!dst) { travelers.splice(i, 1); continue; }
+    const k = tr.t < 1 ? 1 - Math.pow(1 - tr.t, 3) : 1;
+    tr.x += (dst.x - tr.x) * Math.min(1, k * 0.25 + 0.05);
+    tr.y += (dst.y - tr.y) * Math.min(1, k * 0.25 + 0.05) - 30 * dt * (1 - tr.t);
+    if (tr.t >= 1) { if (tr.onArrive) tr.onArrive(dst); travelers.splice(i, 1); }
+  }
+}
+function drawTravel(ctx) {
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const tr of travelers) { ctx.font = "44px serif"; ctx.fillText(tr.ch, tr.x, tr.y); }
+}
+
+// ---------------------------------------------------------------------------
+// TRANSIENT OVERLAYS (flash, links, banners, custom draws with ttl)
 // ---------------------------------------------------------------------------
 const overlays = [];
 export function flash() { overlays.push({ ttl: 0.45, age: 0, kind: "flash" }); }
 export function link(ax, ay, bx, by) { overlays.push({ ttl: 0.1, age: 0, kind: "link", ax, ay, bx, by }); }
 export function ring(x, y, color) { overlays.push({ ttl: 0.6, age: 0, kind: "ring", x, y, color }); }
+export function banner(x, y, text) { overlays.push({ ttl: 1.4, age: 0, kind: "banner", x, y, text }); }
+export function blush(x, y) { overlays.push({ ttl: 1.2, age: 0, kind: "blush", x, y }); }
 
 export function stepOverlays(dt) {
   for (let i = overlays.length - 1; i >= 0; i--) {
@@ -206,6 +286,15 @@ export function drawOverlays(ctx) {
     } else if (o.kind === "ring") {
       ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = o.color || "#fff";
       ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(o.x, o.y, 20 + k * 90, 0, 7); ctx.stroke();
+      ctx.restore();
+    } else if (o.kind === "banner") {
+      ctx.save(); ctx.globalAlpha = Math.min(1, (1 - k) * 2); ctx.textAlign = "center";
+      ctx.translate(o.x, o.y - k * 40); ctx.font = "bold 46px system-ui";
+      ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.strokeText(o.text, 0, 0);
+      ctx.fillStyle = "#fff"; ctx.fillText(o.text, 0, 0); ctx.restore();
+    } else if (o.kind === "blush") {
+      ctx.save(); ctx.globalAlpha = (1 - k) * 0.6; ctx.fillStyle = "#ff7aa8";
+      for (const dx of [-26, 26]) { ctx.beginPath(); ctx.arc(o.x + dx, o.y + 6, 16, 0, 7); ctx.fill(); }
       ctx.restore();
     }
   }

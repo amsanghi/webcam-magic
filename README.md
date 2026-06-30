@@ -67,6 +67,13 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **🏷️ Stamp** — pinch to place stickers; cycle the sticker (section 6)
 - **🍓 Catch / 🫧 Pop / 🏒 Hockey / ✊ RPS / 😐 Don't Laugh / 🪞 Mirror** — six mini-games (section 7)
 
+**Extras:** 🎚 **live tuning panel** (HUD button) with sliders for every gesture/face
+threshold — adjust the "feel" in real time. **Reaction weather** (sun/rain/stars by mood),
+**beat-reactive** sparkle pulse from your mic, **couple streak** counter (session combo +
+daily streak in `localStorage`), **cross-seam toss** (pinch-fling an emoji and it lands on
+your partner's screen to catch), **head-shake** scatters toys, **concert mode** strobe on
+rock-on, and a **clown filter** for the Don't-Laugh loser.
+
 ## Code layout
 
 - `effects.js` — particle engine, screen overlays (vignette/fog/flash/rainbow/spotlight/tint/shake), WebAudio sounds

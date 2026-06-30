@@ -3,6 +3,13 @@
 // for the selfie view). Temporal state (wave velocity, zoned timer) is module-
 // level and applies to the LOCAL camera only; the remote side is received whole.
 
+// Live-tunable thresholds (the "feel" knobs). The debug panel mutates these.
+export const TUNE = {
+  smile: 0.40, kiss: 0.50, brow: 0.60, frown: 0.55, blink: 0.55, tongue: 0.40,
+  laughJaw: 0.35, laughSmile: 0.25, pinch: 0.45, snap: 0.40, wave: 0.012,
+  seam: 0.82, zonedSec: 6,
+};
+
 const D = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const mir = (lm) => ({ x: 1 - lm.x, y: lm.y });           // raw -> display-normalized
 
@@ -16,7 +23,7 @@ export function blankState() {
     palm: null, hands: [],
     two: { heart: false, frame: false, clap: false, cup: false,
            spread: { active: false, dist: 0 }, twist: { active: false, angle: 0 }, circle: { active: false, x: 0, y: 0, r: 0 } },
-    face: { present: false, smile: 0, kiss: 0, brow: 0, frown: 0, blink: 0, tongue: 0, laugh: 0, zoned: false, nose: null, mouth: null },
+    face: { present: false, smile: 0, kiss: 0, brow: 0, frown: 0, blink: 0, tongue: 0, laugh: 0, zoned: false, headShake: false, nose: null, mouth: null },
   };
 }
 
@@ -38,9 +45,9 @@ function classifyHand(lm) {
   const snapD = D(lm[4], lm[12]) / hs;                     // thumb-middle
   const cnt = f.index + f.middle + f.ring + f.pinky;
   let pose = "";
-  if (pinchD < 0.45 && !f.middle && !f.ring && !f.pinky) pose = "pinch";
-  else if (pinchD < 0.45 && f.middle && f.ring) pose = "ok";
-  else if (snapD < 0.4 && f.index) pose = "snap";
+  if (pinchD < TUNE.pinch && !f.middle && !f.ring && !f.pinky) pose = "pinch";
+  else if (pinchD < TUNE.pinch && f.middle && f.ring) pose = "ok";
+  else if (snapD < TUNE.snap && f.index) pose = "snap";
   else if (f.thumb && cnt === 0) pose = (lm[4].y > w.y ? "thumbsDown" : "thumbsUp");
   else if (f.index && f.pinky && !f.middle && !f.ring) pose = "rockOn";
   else if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) pose = "fingerGuns";
@@ -56,7 +63,7 @@ function classifyHand(lm) {
 }
 
 // module-level temporal state (local camera)
-let lastPalmX = null, zonedT = 0;
+let lastPalmX = null, zonedT = 0, noseHist = [];
 
 export function classifyHands(landmarks, state) {
   const hands = (landmarks || []).map(classifyHand);
@@ -82,7 +89,7 @@ export function classifyHands(landmarks, state) {
   // wave = open palm moving sideways
   state.wave = false;
   if (palmHand) {
-    if (lastPalmX != null && Math.abs(palmHand.palm.x - lastPalmX) > 0.012) state.wave = true;
+    if (lastPalmX != null && Math.abs(palmHand.palm.x - lastPalmX) > TUNE.wave) state.wave = true;
     lastPalmX = palmHand.palm.x;
   } else lastPalmX = null;
 
@@ -127,15 +134,24 @@ export function classifyFace(blendshapes, faceLandmarks, state, dt) {
   F.blink = Math.min(g("eyeBlinkLeft"), g("eyeBlinkRight"));   // both eyes
   F.tongue = g("tongueOut");
   const jaw = g("jawOpen");
-  F.laugh = (jaw > 0.35 && F.smile > 0.25) ? 1 : 0;
+  F.laugh = (jaw > TUNE.laughJaw && F.smile > TUNE.laughSmile) ? 1 : 0;
   F.nose = mir(lms[1]);
   F.mouth = { x: 1 - (lms[13].x + lms[14].x) / 2, y: (lms[13].y + lms[14].y) / 2 };
+
+  // head-shake: nose x oscillating quickly side to side
+  noseHist.push(F.nose.x); if (noseHist.length > 8) noseHist.shift();
+  let dirs = 0;
+  for (let i = 2; i < noseHist.length; i++) {
+    const a = noseHist[i] - noseHist[i - 1], b = noseHist[i - 1] - noseHist[i - 2];
+    if (a * b < 0 && Math.abs(a) > 0.012) dirs++;          // direction reversal with motion
+  }
+  F.headShake = dirs >= 3;
 
   // zoned-out: low everything for a sustained while
   const flat = F.smile < 0.1 && F.brow < 0.1 && F.frown < 0.1 && jaw < 0.12 && !state.present;
   zonedT = flat ? zonedT + dt : 0;
-  F.zoned = zonedT > 6;
+  F.zoned = zonedT > TUNE.zonedSec;
   return state;
 }
 
-export function resetTemporal() { lastPalmX = null; zonedT = 0; }
+export function resetTemporal() { lastPalmX = null; zonedT = 0; noseHist = []; }

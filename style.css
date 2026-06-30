@@ -86,6 +86,18 @@ button:hover { filter: brightness(1.08); }
 }
 .ghost.wide { width: auto; padding: 0 14px; height: 30px; }
 
+/* ---- debug / tuning panel ---- */
+#debug {
+  position: absolute; top: 60px; left: 16px; width: min(300px, 90vw);
+  max-height: 78vh; overflow-y: auto; background: var(--panel); backdrop-filter: blur(10px);
+  border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; z-index: 5;
+}
+#debug h2 { margin: 0 0 8px; font-size: 14px; }
+#debug .drow { display: grid; grid-template-columns: 88px 1fr 42px; align-items: center; gap: 8px; margin-bottom: 7px; }
+#debug .dlabel { font-size: 11px; opacity: .8; }
+#debug .dval { font-size: 11px; opacity: .6; text-align: right; font-variant-numeric: tabular-nums; }
+#debug input[type=range] { width: 100%; }
+
 /* ---- legend ---- */
 #legend {
   position: absolute; right: 16px; bottom: 16px; width: min(380px, 92vw);
