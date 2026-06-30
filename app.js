@@ -548,20 +548,24 @@ const MODE_INFO = {
   kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
   mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
   lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
-  truthdare: { ic: "😈", nm: "Truth or Dare", cat: "Couple", how: ["Press truth or dare for a prompt", "Turn on 🔞 (menu) for a flirtier deck"] },
   spinner: { ic: "🎡", nm: "Date Spinner", cat: "Couple", how: ["Spin for a random date-night idea"] },
   pictionary: { ic: "🎨", nm: "Pictionary", cat: "Couple", how: ["One person: “new word”, then pinch to draw it", "The other: say it out loud or type a guess"] },
   mailbox: { ic: "💌", nm: "Mailbox", cat: "Couple", how: ["“write” a love note → delivered to your partner", "Saved here so you can re-read them"] },
   bucket: { ic: "🪣", nm: "Bucket List", cat: "Couple", how: ["“add” things to do together", "Pinch an item to check it off (synced)"] },
   dressup: { ic: "👒", nm: "Dress-Up", cat: "Couple", how: ["Cycle through hats", "Match your partner's hat to twin 👯"] },
-  pickup: { ic: "💘", nm: "Lines", cat: "Couple", how: ["Press for a pickup line / compliment", "Turn on 🔞 (menu) for cheekier ones"] },
+  truthdare: { ic: "😈", nm: "Truth or Dare", cat: "After dark 🌶️", how: ["Press truth or dare for a flirty prompt", "Read it out and do it 😏"] },
+  pickup: { ic: "💘", nm: "Pick-up Lines", cat: "After dark 🌶️", how: ["Press for a flirty line / pick-up", "Delivered to your partner too 😘"] },
+  dareroulette: { ic: "🌶️", nm: "Dare Roulette", cat: "After dark 🌶️", how: ["Spin the wheel of bold dares", "Whatever it lands on… you do 😈"] },
+  loversdice: { ic: "🎲", nm: "Lovers' Dice", cat: "After dark 🌶️", how: ["Roll for an action × a spot", "e.g. “slow-kiss the neck” — act it out 😏"] },
+  wyr: { ic: "😏", nm: "Would You Rather", cat: "After dark 🌶️", how: ["A flirty this-or-that appears", "Vote with fingers: ☝️ left, ✌️ right — see if you match"] },
+  never: { ic: "🙈", nm: "Never Have I Ever", cat: "After dark 🌶️", how: ["A spicy confession appears each round", "Say 'I have' or 'I haven't' 😏"] },
   slowdance: { ic: "💃", nm: "Slow Dance", cat: "Chill", how: ["Warm romantic ambiance", "Play music and sway — hearts pulse to the beat"] },
   mood: { ic: "🕯️", nm: "Mood", cat: "Chill", how: ["Candlelit ambiance, just the two of you"] },
   breathing: { ic: "🧘", nm: "Breathe", cat: "Chill", how: ["Follow the ring — in, hold, out", "Breathe together to relax"] },
   karaoke: { ic: "🎤", nm: "Karaoke", cat: "Chill", how: ["Paste some lyrics", "They scroll like a teleprompter"] },
   countdown: { ic: "⏳", nm: "Countdown", cat: "Chill", how: ["Set the date you'll next meet", "It counts down the days 🥹"] },
 };
-const CAT_ORDER = ["Free play", "Create", "Games", "Couple", "Chill"];
+const CAT_ORDER = ["Free play", "Create", "Games", "Couple", "Chill", "After dark 🌶️"];
 const MODE_ACTIONS = {
   share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
   toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
@@ -573,6 +577,7 @@ const MODE_ACTIONS = {
   karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
   oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
   scrapbook: [["prev", "◀"], ["next", "▶"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
+  dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
 };
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
@@ -614,12 +619,6 @@ $("copyLinkBtn").addEventListener("click", (e) => copyLink(e.target));
 $("copyLink2").addEventListener("click", (e) => copyLink(e.target));
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
 $("anniv").addEventListener("click", setAnniv);
-let adultOn = false;
-$("adultBtn").addEventListener("click", (e) => {
-  if (!adultOn && !confirm("Enable the 18+ flirty deck? (suggestive, playful — nothing explicit)")) return;
-  adultOn = !adultOn; games.setAdult(adultOn);
-  e.target.style.opacity = adultOn ? 1 : 0.5; e.target.title = adultOn ? "18+ flirty deck ON" : "18+ flirty deck off";
-});
 // ready screen
 $("readyStart").addEventListener("click", () => navTo("play", pendingMode));
 $("readyBack").addEventListener("click", () => navTo("menu"));
