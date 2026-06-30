@@ -504,19 +504,35 @@ export function createGames(net, host) {
   // ---------------- PICTIONARY (one draws, both say it out loud) -----------
   function pictionaryMode() {
     const WORDS = ["cat", "pizza", "heart", "house", "sun", "star", "fish", "tree", "car", "flower", "moon", "cake", "boat", "dog", "robot", "banana", "guitar", "ghost"];
-    let strokes = [], cur = { 0: null, 1: null }, isDrawer = false, word = "", revealed = false;
+    let strokes = [], cur = { 0: null, 1: null }, isDrawer = false, word = "", revealed = false, score = 0, flash = "";
     const add = (side, pt) => { let c = cur[side]; if (!c) { c = { side, pts: [] }; strokes.push(c); cur[side] = c; } c.pts.push(pt); };
+    const norm = (s) => (s || "").toLowerCase().replace(/[^a-z]/g, "");
     return {
-      enter() { strokes = []; cur = { 0: null, 1: null }; isDrawer = false; word = ""; revealed = false; },
-      action(a) { if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); } else if (a === "reveal") { revealed = true; net.send({ t: "pic-reveal", w: word }); } else if (a === "clear") { strokes = []; net.send({ t: "draw-clear" }); } },
-      onNet(m) { if (m.t === "pic-role") { isDrawer = false; word = ""; revealed = false; } else if (m.t === "pic-reveal") { word = m.w; revealed = true; } else if (m.t === "draw") add(1, { x: m.x, y: m.y }); else if (m.t === "draw-up") cur[1] = null; else if (m.t === "draw-clear") strokes = []; },
+      enter() { strokes = []; cur = { 0: null, 1: null }; isDrawer = false; word = ""; revealed = false; score = 0; },
+      action(a) {
+        if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); }
+        else if (a === "reveal") { revealed = true; net.send({ t: "pic-reveal", w: word }); }
+        else if (a === "clear") { strokes = []; net.send({ t: "draw-clear" }); }
+        else if (a === "guess") { if (isDrawer) return; const g = prompt("Your guess:"); if (g) net.send({ t: "pic-guess", g }); }
+      },
+      onNet(m) {
+        if (m.t === "pic-role") { isDrawer = false; word = ""; revealed = false; }
+        else if (m.t === "pic-reveal") { word = m.w; revealed = true; }
+        else if (m.t === "draw") add(1, { x: m.x, y: m.y });
+        else if (m.t === "draw-up") cur[1] = null;
+        else if (m.t === "draw-clear") strokes = [];
+        else if (m.t === "pic-guess" && isDrawer) { if (norm(m.g) === norm(word)) { revealed = true; score++; net.send({ t: "pic-correct", w: word }); FX.confetti(W / 2, H / 2, 40); FX.Sound.chime(); } else { flash = "❌ “" + m.g + "”"; net.send({ t: "pic-wrong", g: m.g }); } }
+        else if (m.t === "pic-correct") { word = m.w; revealed = true; score++; FX.confetti(W / 2, H / 2, 40); FX.Sound.chime(); }
+        else if (m.t === "pic-wrong") flash = "❌ " + m.g;
+      },
       update(dt, local) { if (isDrawer && local && local.pinch && local.pinch.active) { const pt = { x: local.pinch.x, y: local.pinch.y }; add(0, pt); net.send({ t: "draw", x: pt.x, y: pt.y }); } else if (cur[0]) { cur[0] = null; net.send({ t: "draw-up" }); } },
       draw(ctx) {
         ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 6;
         for (const st of strokes) { if (st.pts.length < 2) continue; ctx.beginPath(); st.pts.forEach((p, i) => { const c = toCanvas(p, st.side); i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y); }); ctx.stroke(); }
         ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui";
-        ctx.fillText(isDrawer && !revealed ? "✏️ draw: " + word + "  (don't say it!)" : revealed ? "it was: " + word + " 🎉" : "🤔 guess out loud what they're drawing!", W / 2, 40);
-        hint(ctx, "Pictionary — “new word” to be the drawer • pinch to draw • “reveal” the answer");
+        ctx.fillText(isDrawer && !revealed ? "✏️ draw: " + word + "  (don't say it!)" : revealed ? "it was: " + word + " 🎉" : "🤔 guess what they're drawing!", W / 2, 40);
+        ctx.font = "16px system-ui"; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillText("✅ score " + score + (flash ? "   " + flash : ""), W / 2, 66);
+        hint(ctx, "Pictionary — drawer: “new word” + pinch to draw • guesser: “guess” (or just say it out loud)");
       },
     };
   }
@@ -592,6 +608,89 @@ export function createGames(net, host) {
     };
   }
 
+  // ---------------- OUR SONG (mic-reactive vinyl visualizer) ---------------
+  function ourSongMode() {
+    let title = "our song", spin = 0;
+    return {
+      action(a) { if (a === "set") { const v = prompt("Name your song:", title); if (v) { title = v; net.send({ t: "song", title: v }); } } },
+      onNet(m) { if (m.t === "song") title = m.title; },
+      update(dt) { spin += dt * (1 + FX.getBeat() * 5); },
+      draw(ctx) {
+        const beat = FX.getBeat();
+        ctx.save(); ctx.translate(W / 2, H / 2 - 40); ctx.rotate(spin); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = (120 + beat * 36) + "px serif"; ctx.fillText("💿", 0, 0); ctx.restore();
+        ctx.save(); ctx.fillStyle = "#ff7aa8"; const n = 26; for (let i = 0; i < n; i++) { const h = 16 + (Math.sin(spin * 2 + i) * 0.5 + 0.5) * beat * 180 + beat * 50; ctx.fillRect(W / 2 - n * 7 + i * 14, H - 96 - h, 10, h); } ctx.restore();
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 34px system-ui"; ctx.fillText("🎶 " + title, W / 2, H * 0.74);
+        ctx.font = "16px system-ui"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.fillText("play it out loud — the disc & bars dance to the beat", W / 2, H - 24);
+      },
+    };
+  }
+
+  // ---------------- LOVE MAILBOX (synced notes, saved to inbox) -------------
+  function mailboxMode() {
+    const load = () => { try { return JSON.parse(localStorage.getItem("wm_inbox") || "[]"); } catch (_) { return []; } };
+    const save = (a) => { try { localStorage.setItem("wm_inbox", JSON.stringify(a.slice(-20))); } catch (_) {} };
+    let inbox = [];
+    return {
+      enter() { inbox = load(); },
+      action(a) { if (a === "write") { const v = prompt("Write a love note for your partner:"); if (v) { net.send({ t: "letter", text: v }); FX.travel({ x: W * 0.25, y: H * 0.5 }, () => ({ x: W, y: H * 0.4 }), "💌"); FX.banner(W / 2, H * 0.3, "sent 💌"); FX.Sound.chime(); } } },
+      onNet(m) { if (m.t === "letter") { inbox.push({ text: m.text }); save(inbox); FX.travel({ x: 0, y: H * 0.4 }, () => ({ x: W * 0.25, y: H * 0.5 }), "💌", () => { FX.banner(W / 2, H * 0.3, "💌 new note!"); FX.flood(0, W, ["💕"], 14); }); FX.Sound.chime(); } },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui"; ctx.fillText("💌 Love Mailbox — “write” to send a note", W / 2, 48);
+        const recent = inbox.slice(-6);
+        if (!recent.length) { ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.fillText("notes from your partner appear here 💕", W / 2, H / 2); return; }
+        ctx.textAlign = "left"; ctx.font = "19px system-ui";
+        recent.forEach((n, i) => { ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fillText("💗 " + String(n.text).slice(0, 56), W * 0.16, 110 + i * 42); });
+      },
+    };
+  }
+
+  // ---------------- OUR STARS (shared constellation) -----------------------
+  function starsMode() {
+    let stars = [], down = false;
+    return {
+      enter() { stars = []; },
+      action(a) { if (a === "clear") { stars = []; net.send({ t: "star-clear" }); } },
+      onNet(m) { if (m.t === "star") stars.push({ x: m.x, y: m.y, side: 1 }); else if (m.t === "star-clear") stars = []; },
+      update(dt, local) { const d = local && local.pinch && local.pinch.active; if (d && !down) { const p = { x: local.pinch.x, y: local.pinch.y }; stars.push({ x: p.x, y: p.y, side: 0 }); net.send({ t: "star", x: p.x, y: p.y }); FX.Sound.pop(); } down = d; },
+      draw(ctx) {
+        ctx.save(); ctx.globalAlpha = 0.4; ctx.fillStyle = "#0a0a2a"; ctx.fillRect(0, 0, W, H); ctx.restore();
+        ctx.strokeStyle = "rgba(180,200,255,.6)"; ctx.lineWidth = 2; ctx.beginPath();
+        stars.forEach((s, i) => { const c = toCanvas(s, s.side); i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y); }); ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "22px serif";
+        stars.forEach((s) => { const c = toCanvas(s, s.side); ctx.fillText("⭐", c.x, c.y); });
+        ctx.font = "20px system-ui"; ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillText("✨ our stars — pinch to place a star; together you draw a constellation", W / 2, 40);
+      },
+    };
+  }
+
+  // ---------------- DANCE BATTLE (pose-match scoring) ----------------------
+  function danceBattleMode() {
+    const MOVES = [["✊ fist", "fist"], ["✋ palm", "palm"], ["✌️ peace", "peace"], ["🤟 rock", "rockOn"], ["👍 up", "thumbsUp"], ["👉 point", "point"], ["🤙 pinky", "pinky"]];
+    let target = MOVES[0], t = 0, score = [0, 0], hit = { 0: false, 1: false };
+    const next = () => { target = pick(MOVES); t = 2.2; hit = { 0: false, 1: false }; };
+    return {
+      enter() { score = [0, 0]; next(); },
+      update(dt, local, remote) {
+        t -= dt;
+        const check = (g, s) => { if (!hit[s] && g && g.poses && g.poses[target[1]]) { hit[s] = true; score[s]++; FX.sparkleAt(s === 0 ? W * 0.25 : W * 0.75, H * 0.5, 8); FX.Sound.pop(); } };
+        check(local, 0); check(remote, 1);
+        if (t <= 0) next();
+      },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.fillText(score[0] + "", W * 0.25, 56); ctx.fillText(score[1] + "", W * 0.75, 56); big(ctx, "do: " + target[0], "match the move in time! • " + Math.ceil(t)); },
+    };
+  }
+
+  // ---------------- LOVE CALCULATOR ----------------------------------------
+  function loveCalcMode() {
+    const V = ["soulmates 💞", "written in the stars ✨", "a perfect match 💕", "made for each other 🥰", "the cutest couple 😍", "endgame 💍"];
+    let pct = null, verdict = "";
+    return {
+      action(a) { if (a === "calc") { const v = prompt("Two names (comma separated):", ""); if (v) { let h = 0; for (const ch of v.toLowerCase().replace(/[^a-z]/g, "")) h = (h * 31 + ch.charCodeAt(0)) % 1000; pct = 75 + h % 26; verdict = pick(V); net.send({ t: "lovecalc", pct, verdict }); FX.flood(0, W, ["❤️", "💕"], 30); FX.Sound.chime(); } } },
+      onNet(m) { if (m.t === "lovecalc") { pct = m.pct; verdict = m.verdict; } },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; pct == null ? big(ctx, "❤️ Love Calculator", "press “calc” + enter both names") : big(ctx, pct + "% 💘", verdict); },
+    };
+  }
+
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
@@ -606,7 +705,8 @@ export function createGames(net, host) {
 
   const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
     dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode,
-    mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode };
+    mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode,
+    oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
