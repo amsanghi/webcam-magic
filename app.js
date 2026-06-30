@@ -25,7 +25,10 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
-const host = { snapshot: (name) => canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); }) };
+const host = { snapshot: (name) => {
+  canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
+  try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-12))); } catch (_) {}
+} };
 const games = createGames(net, host);
 
 // =====================================================================
@@ -237,7 +240,15 @@ function handleFreeNet(m) {
   else if (m.t === "toss") throws.push({ x: MID - 20, y: (m.yN || 0.5) * H, vx: -300, vy: -120, ch: m.ch || "💖", s: 46 });
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
   else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
+  else if (m.t === "ritual") doRitual(m.kind, false);
 }
+function doRitual(kind, send) {
+  const map = { morning: ["good morning ☀️", ["☀️", "🌻", "✨"], "sun"], afternoon: ["hey you ☀️", ["😊", "💕", "✨"], "sun"], night: ["good night 🌙", ["🌙", "⭐", "💫"], "stars"] };
+  const r = map[kind] || map.morning;
+  FX.banner(W / 2, H * 0.3, r[0]); FX.flood(0, W, r[1], 24); FX.setWeather(r[2], 0.7); FX.Sound.chime();
+  if (send) net.send({ t: "ritual", kind });
+}
+function sendRitual() { const h = new Date().getHours(); doRitual(h < 12 ? "morning" : h < 18 ? "afternoon" : "night", true); }
 function fireConfetti() { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); FX.Sound.chime(); net.send({ t: "confetti" }); }
 
 // 💑 days-together counter
@@ -297,8 +308,13 @@ function updateAmbient() {
   if (happy > 0.4) FX.setWeather("sun", Math.min(1, happy));
   else if (sad > 0.4) FX.setWeather("rain", Math.min(1, sad));
   else FX.setWeather("stars", 0.4);
+  // seasonal sprinkle (subtle, by date)
+  const d = new Date(), md = (d.getMonth() + 1) * 100 + d.getDate();
+  let s = null;
+  if (d.getMonth() === 11) s = "❄️"; else if (md === 214) s = "💝"; else if (md === 101 || md === 704) s = "🎆"; else if (md === 1031) s = "🎃";
+  if (s && Math.random() < 0.025) FX.emoji(FX.rnd(0, W), -20, FX.rnd(-10, 10), FX.rnd(40, 90), s, FX.rnd(20, 34), FX.rnd(3, 5), 30, { vr: 0 });
 }
-let analyser = null, beatBuf = null, beatEMA = 0;
+let analyser = null, beatBuf = null, beatEMA = 0, lastTotal = 0, clapCd = 0;
 function initBeat(stream) {
   try {
     const a = new (window.AudioContext || window.webkitAudioContext)();
@@ -314,6 +330,11 @@ function stepBeat() {
   const e = sum / (24 * 255);
   beatEMA = beatEMA * 0.9 + e * 0.1;
   FX.setBeat(Math.max(0, Math.min(1, (e - beatEMA) * 4)));          // transient above moving average
+  // clap / cheer detection — sharp broadband spike (free mode only)
+  let tot = 0; for (let i = 0; i < beatBuf.length; i++) tot += beatBuf[i]; tot /= beatBuf.length * 255;
+  if (clapCd > 0) clapCd--;
+  if (games.mode === "free" && fxOn && clapCd === 0 && tot - lastTotal > 0.16 && tot > 0.34) { clapCd = 30; FX.burst(W / 2, H * 0.4, ["👏", "🎉"], 12, 320); FX.Sound.applause(); }
+  lastTotal = tot;
 }
 
 // =====================================================================
@@ -496,6 +517,7 @@ $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden
 $("loveBtn").addEventListener("click", sendSweet);
 $("confettiBtn").addEventListener("click", fireConfetti);
 $("anniv").addEventListener("click", setAnniv);
+$("ritualBtn").addEventListener("click", sendRitual);
 let adultOn = false;
 $("adultBtn").addEventListener("click", (e) => {
   if (!adultOn && !confirm("Enable the 18+ flirty deck? (suggestive, playful — nothing explicit)")) return;
@@ -548,6 +570,8 @@ const MODE_ACTIONS = {
   mailbox: [["write", "💌 write"]],
   stars: [["clear", "clear"]],
   lovecalc: [["calc", "❤️ calc"]],
+  scrapbook: [["prev", "◀"], ["next", "▶"], ["clear", "🗑"]],
+  bucket: [["add", "➕ add"], ["clear", "🗑"]],
 };
 function selectMode(name, btn) {
   btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);
