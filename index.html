@@ -7,114 +7,77 @@
 <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div id="stage">
-    <canvas id="canvas" width="1280" height="720"></canvas>
+  <!-- hidden source videos -->
+  <video id="localVideo" autoplay playsinline muted></video>
+  <video id="remoteVideo" autoplay playsinline></video>
 
-    <!-- hidden source videos -->
-    <video id="localVideo" autoplay playsinline muted></video>
-    <video id="remoteVideo" autoplay playsinline></video>
-
-    <!-- lobby -->
-    <div id="lobby">
-      <h1>✨ Webcam Magic</h1>
-      <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
-        Everything runs in your browser — no server, no recording, nothing leaves your devices.</p>
-
-      <label class="field">
-        <span>Secret room word (you &amp; your partner type the same thing)</span>
-        <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
-      </label>
-
-      <div class="row">
-        <button id="joinBtn">Join call</button>
-        <button id="soloBtn" class="ghost-btn">Try solo</button>
-      </div>
-      <button id="copyLinkBtn" class="link-btn hidden">🔗 Copy invite link</button>
-      <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
+  <!-- STEP 1 — connect ----------------------------------------------------->
+  <section id="lobby" class="screen">
+    <h1>✨ Webcam Magic</h1>
+    <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
+      Runs entirely in your browser — no server, no recording, nothing leaves your devices.</p>
+    <label class="field">
+      <span>Secret room word (you &amp; your partner type the same thing)</span>
+      <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
+    </label>
+    <div class="row">
+      <button id="joinBtn">Join call →</button>
+      <button id="soloBtn" class="ghost-btn">Try solo</button>
     </div>
+    <button id="copyLinkBtn" class="link-btn hidden">🔗 Copy invite link</button>
+    <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
+  </section>
 
-    <!-- top HUD -->
-    <div id="hud" class="hidden">
+  <!-- STEP 2 — pick a mode -------------------------------------------------->
+  <section id="menu" class="screen hidden">
+    <div class="menubar">
       <span class="pill" id="connPill">solo</span>
-      <span class="pill" id="gesturePill">—</span>
-      <span class="pill hidden" id="streak">💞 x0</span>
-      <span class="pill" id="anniv" title="Click to set your anniversary" style="cursor:pointer">💑 set date</span>
-      <span class="pill" id="fpsPill">– fps</span>
-      <button class="ghost" id="legendBtn" title="What can I do?">？</button>
-      <button class="ghost" id="loveBtn" title="Send a sweet nothing">💌</button>
-      <button class="ghost" id="confettiBtn" title="Confetti!">🎉</button>
-      <button class="ghost" id="ritualBtn" title="Send a good morning / good night">🌅</button>
-      <button class="ghost" id="adultBtn" title="18+ flirty deck (off)" style="opacity:.5">🔞</button>
-      <button class="ghost" id="tuneBtn" title="Tuning">🎚</button>
-      <button class="ghost" id="snapBtn" title="Snapshot">📸</button>
-      <button class="ghost" id="muteFxBtn" title="Toggle effects">✨</button>
-      <button class="ghost" id="leaveBtn" title="Leave">✕</button>
+      <span class="grow"></span>
+      <span class="pill" id="streak" title="hearts">💞 x0</span>
+      <span class="pill clickable" id="anniv" title="set your anniversary">💑 set date</span>
+      <button class="chip" id="copyLink2">🔗 invite</button>
+      <button class="chip" id="tuneBtn" title="Tuning">🎚</button>
+      <button class="chip" id="adultBtn" title="18+ flirty deck (off)" style="opacity:.5">🔞</button>
     </div>
+    <h2>Pick something to do together</h2>
+    <p class="muted">Either of you can choose — your partner comes along automatically.</p>
+    <div id="menuGrid"></div>
+  </section>
 
-    <!-- live tuning panel -->
-    <div id="debug" class="hidden"></div>
-
-    <!-- mode bar -->
-    <div id="modebar" class="hidden">
-      <button class="mode on" data-mode="free">✨ Free</button>
-      <button class="mode" data-mode="share">📎 Share</button>
-      <button class="mode" data-mode="toys">🧸 Toys</button>
-      <button class="mode" data-mode="draw">✏️ Draw</button>
-      <button class="mode" data-mode="stamp">🏷️ Stamp</button>
-      <span class="divider"></span>
-      <button class="mode" data-mode="catch">🍓 Catch</button>
-      <button class="mode" data-mode="pop">🫧 Pop</button>
-      <button class="mode" data-mode="hockey">🏒 Hockey</button>
-      <button class="mode" data-mode="rps">✊ RPS</button>
-      <button class="mode" data-mode="dontlaugh">😐 Don't Laugh</button>
-      <button class="mode" data-mode="mirror">🪞 Mirror</button>
-      <span class="divider"></span>
-      <button class="mode" data-mode="photobooth">📸 Booth</button>
-      <button class="mode" data-mode="synctest">💘 Sync</button>
-      <button class="mode" data-mode="thumbwar">👍 Thumb War</button>
-      <button class="mode" data-mode="spinner">🎡 Spinner</button>
-      <button class="mode" data-mode="dressup">👒 Dress-Up</button>
-      <button class="mode" data-mode="slowdance">💃 Slow Dance</button>
-      <button class="mode" data-mode="truthdare">😈 Truth/Dare</button>
-      <button class="mode" data-mode="eightball">🎱 8-Ball</button>
-      <button class="mode" data-mode="tictactoe">#️⃣ Tic-Tac-Toe</button>
-      <button class="mode" data-mode="mashup">💞 Name Mash</button>
-      <button class="mode" data-mode="countdown">⏳ Countdown</button>
-      <button class="mode" data-mode="pictionary">🎨 Pictionary</button>
-      <button class="mode" data-mode="breathing">🧘 Breathe</button>
-      <button class="mode" data-mode="karaoke">🎤 Karaoke</button>
-      <button class="mode" data-mode="kisscam">💋 Kiss Cam</button>
-      <button class="mode" data-mode="mood">🕯️ Mood</button>
-      <button class="mode" data-mode="pickup">💘 Lines</button>
-      <button class="mode" data-mode="oursong">🎶 Our Song</button>
-      <button class="mode" data-mode="mailbox">💌 Mailbox</button>
-      <button class="mode" data-mode="stars">✨ Our Stars</button>
-      <button class="mode" data-mode="dancebattle">🕺 Dance Battle</button>
-      <button class="mode" data-mode="lovecalc">❤️ Love Calc</button>
-      <button class="mode" data-mode="scrapbook">📔 Scrapbook</button>
-      <button class="mode" data-mode="bucket">🪣 Bucket List</button>
+  <!-- STEP 2.5 — guidelines ------------------------------------------------->
+  <section id="ready" class="screen hidden">
+    <div class="card">
+      <div class="bigicon" id="readyIcon">✨</div>
+      <h2 id="readyName">Mode</h2>
+      <ul id="readyHow"></ul>
+      <div class="row">
+        <button class="ghost-btn" id="readyBack">← Back</button>
+        <button id="readyStart">▶ Start</button>
+      </div>
     </div>
+  </section>
+
+  <!-- STEP 3 — play --------------------------------------------------------->
+  <section id="play" class="screen hidden">
+    <div id="playTop">
+      <span class="pill" id="connPill2">connected 💚</span>
+      <span class="pill" id="modePill">✨ Free</span>
+      <span class="grow"></span>
+      <button class="chip" id="menuBtn" title="Back to menu">≡ menu</button>
+      <button class="chip" id="sizeBtn" title="Resize video">⤢ M</button>
+      <button class="chip" id="fxBtn" title="Toggle effects">✨</button>
+      <button class="chip" id="loveBtn2" title="Sweet nothing">💌</button>
+      <button class="chip" id="confettiBtn2" title="Confetti">🎉</button>
+      <button class="chip" id="snapBtn" title="Snapshot">📸</button>
+      <button class="chip" id="leaveBtn" title="Leave">✕</button>
+    </div>
+    <div id="stage" data-size="m"><canvas id="canvas" width="1280" height="720"></canvas></div>
     <div id="actionbar" class="hidden"></div>
+  </section>
 
-    <!-- legend -->
-    <div id="legend" class="hidden">
-      <h2>Free-play gestures ✦</h2>
-      <ul>
-        <li><b>🫶 Heart</b> (both hands) → hearts flood; <i>both together</i> → screen erupts 💞</li>
-        <li><b>😘 Kiss</b> → kisses fly across (&amp; fog your partner's screen — they wipe it!)</li>
-        <li><b>😀 Smile</b> → sparkles &nbsp;•&nbsp; <b>😮 Brows up</b> → shock &nbsp;•&nbsp; <b>☹️ Frown</b> → rain</li>
-        <li><b>😉 Blink</b> → camera flash &nbsp;•&nbsp; <b>😝 Tongue</b> → raspberry &nbsp;•&nbsp; <b>😂 Laugh</b> → shake</li>
-        <li><b>👋 Wave</b> → glitter &nbsp;•&nbsp; <b>👉 Point</b> → laser &nbsp;•&nbsp; <b>🤟 Rock-on</b> → flames</li>
-        <li><b>👈👉 Finger-guns</b> → confetti &nbsp;•&nbsp; <b>✌️ Peace</b> &nbsp;•&nbsp; <b>👍/👎</b> &nbsp;•&nbsp; <b>🫰 Snap</b> → spotlight</li>
-        <li><b>👏 Clap</b> → applause &nbsp;•&nbsp; <b>🖼️ Frame face</b> → vignette &nbsp;•&nbsp; <b>⭕ Circle hands</b> → orb</li>
-        <li><b>🙌 Reach the seam together</b> → high-five / hold hands &nbsp;•&nbsp; <b>both smile</b> → rainbow</li>
-      </ul>
-      <p class="hint">Switch <b>modes</b> at the top for toys, drawing, stamps &amp; 6 mini-games.</p>
-      <button class="ghost" id="legendClose">Got it</button>
-    </div>
-  </div>
+  <!-- tuning panel (toggled) -->
+  <div id="debug" class="hidden"></div>
 
-  <!-- proven serverless rendezvous (mqtt + torrent), reused from WatchTogether -->
   <script src="./trystero.js"></script>
   <script type="module" src="./app.js"></script>
 </body>

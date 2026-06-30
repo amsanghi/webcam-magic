@@ -23,7 +23,7 @@ canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
 ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
 
 let handLM = null, faceLM = null;
-let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false;
+let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
 let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
 let combo = 0;
 
@@ -377,9 +377,13 @@ function drawCursors() {
   }
 }
 
+const FRAME_MS = 1000 / 30;        // cap render to 30fps — quality over framerate
 function loop() {
+  requestAnimationFrame(loop);
+  if (!playing) return;
   const t = performance.now();
-  const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; frame++;
+  if (t - (loop._draw || 0) < FRAME_MS - 1.5) return;       // throttle (skip extra refresh ticks)
+  const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
   squish[0] += (squishTarget[0] - squish[0]) * 0.25; squish[1] += (squishTarget[1] - squish[1]) * 0.25;
@@ -408,23 +412,9 @@ function loop() {
   if (games.mode === "free") drawFreeOverlay(ctx); else games.draw(ctx);
   FX.drawParticles(ctx); FX.drawOverlays(ctx);
   drawCursors();
-
-  // HUD
-  fpsCount++;
-  if (t - lastFps > 500) { $("fpsPill").textContent = Math.round(fpsCount * 1000 / (t - lastFps)) + " fps"; fpsCount = 0; lastFps = t; }
-  $("gesturePill").textContent = readout(localG);
-  requestAnimationFrame(loop);
 }
 const _dummy = G.blankState();
 function nullDummy() { return _dummy; }
-
-function readout(g) {
-  const x = [];
-  if (g.two.heart) x.push("🫶"); if (g.face.smile > 0.4) x.push("😀"); if (g.face.kiss > 0.5) x.push("😘");
-  if (g.wave) x.push("👋"); if (g.poses.peace) x.push("✌️"); if (g.poses.thumbsUp) x.push("👍");
-  if (g.poses.rockOn) x.push("🤟"); if (g.poses.point) x.push("👉"); if (g.poses.fist) x.push("✊");
-  return x.length ? x.join(" ") : "—";
-}
 
 // =====================================================================
 //  INIT + NETWORK (Trystero, reused pattern)
@@ -436,7 +426,7 @@ async function initModels() {
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 }, facingMode: "user" },
+    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 24, max: 30 }, facingMode: "user" },
     audio: { echoCancellation: true, noiseSuppression: true },
   });
   localVideo.srcObject = stream; await localVideo.play(); return stream;
@@ -455,87 +445,193 @@ function packet() {
             tongue: +g.face.tongue.toFixed(2), laugh: g.face.laugh, zoned: g.face.zoned, nose: g.face.nose, mouth: g.face.mouth } };
 }
 
+// ---- connection: race mqtt + torrent, retry fast until connected ----------
+let connectedOnce = false, reconnectTimer = null, reconnectAttempts = 0, roomWord = "", lastRx = 0;
+function leaveRooms() { entries.forEach((e) => { try { e.room.leave(); } catch (_) {} }); entries = []; primary = null; sendMsg = null; }
+function route(data) {
+  lastRx = Date.now();
+  if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; return; }
+  if (!data) return;
+  if (data.t === "nav") { navTo(data.screen, data.mode, true); return; }
+  if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
+  games.onNet(data); handleFreeNet(data);
+}
 function connect(word, stream) {
+  if (word != null) roomWord = word; if (stream) localStream = stream;
   if (typeof Trystero === "undefined") { setConn("net failed"); return; }
-  localStream = stream;
+  leaveRooms();
   const cfg = { appId: "webcam-magic", relayConfig: { redundancy: 6 } };
-  const rid = roomId(word);
-  const strats = [{ name: "mqtt", join: Trystero.mqtt && Trystero.mqtt.joinRoom }, { name: "torrent", join: Trystero.torrent && Trystero.torrent.joinRoom }];
-  setConn("connecting…");
-  strats.forEach((s) => {
-    if (typeof s.join !== "function") return;
-    let r; try { r = s.join(cfg, rid); } catch (_) { return; }
-    // NOTE: this Trystero build's makeAction returns an OBJECT ({ send, set onMessage }),
-    // not the standard [send, receive] array — destructuring it throws and hangs connect().
-    const action = r.makeAction("m");
-    action.onMessage = (data) => {
-      if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; }
-      else {
-        if (data && typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") selectMode("share");
-        games.onNet(data); handleFreeNet(data);
-      }
-    };
+  const rid = roomId(roomWord);
+  setConn(reconnectAttempts ? "reconnecting…" : "connecting…");
+  [["mqtt", Trystero.mqtt], ["torrent", Trystero.torrent]].forEach(([nm, strat]) => {
+    if (!strat || typeof strat.joinRoom !== "function") return;
+    let r; try { r = strat.joinRoom(cfg, rid); } catch (_) { return; }
+    const action = r.makeAction("m");            // this build returns an object, not [send, get]
+    action.onMessage = route;
     const entry = { room: r, action, connected: false };
     r.onPeerJoin = (pid) => {
-      entry.connected = true;
-      amInitiator = String(Trystero.selfId) > String(pid);
-      games.setAuthority(amInitiator);
+      entry.connected = true; connectedOnce = true; reconnectAttempts = 0; clearTimeout(reconnectTimer); lastRx = Date.now();
+      amInitiator = String(Trystero.selfId) > String(pid); games.setAuthority(amInitiator);
       if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.action.send(o)); }
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚");
     };
-    r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); } };
+    r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { connectedOnce = false; remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); scheduleReconnect(); } };
     r.onPeerStream = (st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
     r.onPeerTrack = (tr, st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
     entries.push(entry);
   });
-  setConn("waiting…");
+  scheduleReconnect();
 }
-window.addEventListener("beforeunload", () => entries.forEach((e) => { try { e.room.leave(); } catch (_) {} }));
-
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  const delay = Math.min(8000, 3000 + reconnectAttempts * 1200);   // retry fast (3s), back off to 8s
+  reconnectTimer = setTimeout(() => { if (!connectedOnce && roomWord) { reconnectAttempts++; connect(); } }, delay);
+}
+// heartbeat: gesture packets stream constantly; if they go silent, rejoin
 setInterval(() => { if (sendMsg) sendMsg(packet()); }, 80);
+setInterval(() => { if (connectedOnce && Date.now() - lastRx > 9000) { connectedOnce = false; setConn("reconnecting…"); reconnectAttempts++; connect(); } }, 3000);
+window.addEventListener("beforeunload", leaveRooms);
 
 // =====================================================================
-//  UI
+//  SCREENS  (lobby → menu → ready → play)
 // =====================================================================
-function setConn(t) { $("connPill").textContent = t; }
+function setConn(t) { $("connPill").textContent = t; $("connPill2").textContent = t; }
+const SCREENS = ["lobby", "menu", "ready", "play"];
+function show(id) { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !== id)); playing = (id === "play"); }
 
+let pendingMode = "free";
+function navTo(screen, mode, fromNet) {
+  if (mode) pendingMode = mode;
+  if (screen === "play") enterPlay(pendingMode);
+  else if (screen === "ready") { showReady(pendingMode); show("ready"); }
+  else show("menu");
+  if (!fromNet && inCall) net.send({ t: "nav", screen, mode: pendingMode });
+}
+function enterPlay(mode) {
+  games.setMode(mode); FX.clearParticles();
+  $("modePill").textContent = (MODE_INFO[mode] ? MODE_INFO[mode].ic + " " + MODE_INFO[mode].nm : mode);
+  const bar = $("actionbar"); bar.innerHTML = "";
+  (MODE_ACTIONS[mode] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
+  bar.classList.toggle("hidden", !MODE_ACTIONS[mode]);
+  show("play");
+}
+function showReady(mode) {
+  const m = MODE_INFO[mode] || { ic: "✨", nm: mode, how: [] };
+  $("readyIcon").textContent = m.ic; $("readyName").textContent = m.nm;
+  $("readyHow").innerHTML = m.how.map((h) => `<li>${h}</li>`).join("");
+}
+
+// =====================================================================
+//  MODE INFO (icon, name, category, how-to — shown before the game)
+// =====================================================================
+const MODE_INFO = {
+  free: { ic: "✨", nm: "Free Play", cat: "Free play", how: ["Smile → sparkles, kiss → flying lips, laugh → screen shakes", "👋 wave, ✌️ peace, 👍/👎, 🤟 rock-on, 👉 point = laser, 🤙 finger-guns = confetti", "🫶 make a heart with both hands → hearts flood", "Frame your face = vignette, clap = applause, snap = spotlight", "Together: reach the centre to hold hands • both smile = rainbow • both heart = eruption"] },
+  share: { ic: "📎", nm: "Share", cat: "Create", how: ["Add an image, a PDF, or capture a window/screen", "Pinch to grab & move it", "Two hands: spread = resize, twist = rotate", "Open-palm swipe to flip PDF pages"] },
+  toys: { ic: "🧸", nm: "Toys", cat: "Create", how: ["Pinch to grab & throw objects", "Open palm = magnet", "Two hands: spread = resize, twist = rotate", "Shake your head to scatter • drop one on your nose to wear it"] },
+  draw: { ic: "✏️", nm: "Draw", cat: "Create", how: ["Pinch to paint together on a shared canvas", "Use “clear” to wipe it"] },
+  stamp: { ic: "🏷️", nm: "Stamp", cat: "Create", how: ["Pinch to drop a sticker", "“next” cycles the sticker"] },
+  stars: { ic: "✨", nm: "Our Stars", cat: "Create", how: ["Pinch to place a star on the night sky", "Together you draw a constellation"] },
+  oursong: { ic: "🎶", nm: "Our Song", cat: "Create", how: ["Name your song", "Play it out loud — the vinyl & bars dance to the beat"] },
+  scrapbook: { ic: "📔", nm: "Scrapbook", cat: "Create", how: ["Your Photo Booth shots are saved here", "◀ ▶ to flip through your memories"] },
+  catch: { ic: "🍓", nm: "Catch", cat: "Games", how: ["Treats fall from the top", "Catch them with your hand — most catches wins"] },
+  pop: { ic: "🫧", nm: "Pop", cat: "Games", how: ["Bubbles float up", "Point your finger to pop them"] },
+  hockey: { ic: "🏒", nm: "Air Hockey", cat: "Games", how: ["Your palm is the paddle", "Block the puck and knock it past your partner"] },
+  rps: { ic: "✊", nm: "Rock Paper Scissors", cat: "Games", how: ["Press “go” for a 3·2·1 countdown", "Throw ✊ fist / ✋ palm / ✌️ scissors"] },
+  dontlaugh: { ic: "😐", nm: "Don't Laugh", cat: "Games", how: ["First one to smile or laugh loses…", "…and gets a clown filter 🤡"] },
+  mirror: { ic: "🪞", nm: "Mirror Me", cat: "Games", how: ["Match the pose shown before time runs out", "Score as many as you can"] },
+  tictactoe: { ic: "#️⃣", nm: "Tic-Tac-Toe", cat: "Games", how: ["Take turns — pinch a cell to place your mark", "First three in a row wins"] },
+  thumbwar: { ic: "👍", nm: "Thumb War", cat: "Games", how: ["Both hold a 👍", "Hold it to push the thumb to your partner's side & pin them"] },
+  dancebattle: { ic: "🕺", nm: "Dance Battle", cat: "Games", how: ["A move is called out each round", "Match it in time — score vs your partner"] },
+  synctest: { ic: "💘", nm: "Sync Test", cat: "Games", how: ["A cute question appears", "Both answer with a finger count — match = in sync!"] },
+  photobooth: { ic: "📸", nm: "Photo Booth", cat: "Games", how: ["Press for a 3·2·1 countdown", "Strike a pose — it saves a framed photo to your Scrapbook"] },
+  kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
+  mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
+  lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
+  truthdare: { ic: "😈", nm: "Truth or Dare", cat: "Couple", how: ["Press truth or dare for a prompt", "Turn on 🔞 (menu) for a flirtier deck"] },
+  spinner: { ic: "🎡", nm: "Date Spinner", cat: "Couple", how: ["Spin for a random date-night idea"] },
+  pictionary: { ic: "🎨", nm: "Pictionary", cat: "Couple", how: ["One person: “new word”, then pinch to draw it", "The other: say it out loud or type a guess"] },
+  mailbox: { ic: "💌", nm: "Mailbox", cat: "Couple", how: ["“write” a love note → delivered to your partner", "Saved here so you can re-read them"] },
+  bucket: { ic: "🪣", nm: "Bucket List", cat: "Couple", how: ["“add” things to do together", "Pinch an item to check it off (synced)"] },
+  dressup: { ic: "👒", nm: "Dress-Up", cat: "Couple", how: ["Cycle through hats", "Match your partner's hat to twin 👯"] },
+  pickup: { ic: "💘", nm: "Lines", cat: "Couple", how: ["Press for a pickup line / compliment", "Turn on 🔞 (menu) for cheekier ones"] },
+  slowdance: { ic: "💃", nm: "Slow Dance", cat: "Chill", how: ["Warm romantic ambiance", "Play music and sway — hearts pulse to the beat"] },
+  mood: { ic: "🕯️", nm: "Mood", cat: "Chill", how: ["Candlelit ambiance, just the two of you"] },
+  breathing: { ic: "🧘", nm: "Breathe", cat: "Chill", how: ["Follow the ring — in, hold, out", "Breathe together to relax"] },
+  karaoke: { ic: "🎤", nm: "Karaoke", cat: "Chill", how: ["Paste some lyrics", "They scroll like a teleprompter"] },
+  countdown: { ic: "⏳", nm: "Countdown", cat: "Chill", how: ["Set the date you'll next meet", "It counts down the days 🥹"] },
+};
+const CAT_ORDER = ["Free play", "Create", "Games", "Couple", "Chill"];
+const MODE_ACTIONS = {
+  share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
+  toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
+  draw: [["clear", "clear"]], stamp: [["next", "next"], ["clear", "clear"]],
+  rps: [["start", "go"]], photobooth: [["shoot", "📸 3·2·1"]], synctest: [["go", "go"]], spinner: [["spin", "🎡 spin"]],
+  dressup: [["next", "👒 next hat"], ["off", "off"]], truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]], tictactoe: [["reset", "↺ reset"]],
+  mashup: [["go", "💞 mash"]], countdown: [["set", "📅 set date"]],
+  pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
+  karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
+  oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
+  scrapbook: [["prev", "◀"], ["next", "▶"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
+};
+function buildMenu() {
+  const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
+  for (const cat of CAT_ORDER) {
+    const title = document.createElement("div"); title.className = "cat-title"; title.textContent = cat; grid.appendChild(title);
+    for (const id in MODE_INFO) if (MODE_INFO[id].cat === cat) {
+      const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode";
+      card.innerHTML = `<div class="ic">${m.ic}</div><div class="nm">${m.nm}</div>`;
+      card.onclick = () => navTo("ready", id);
+      grid.appendChild(card);
+    }
+  }
+}
+
+// =====================================================================
+//  BOOT + UI WIRING
+// =====================================================================
 async function boot(callMode) {
   $("lobbyHint").textContent = "Loading magic… (hand + face models, ~few MB, once)";
   try {
     await initModels();
     const stream = await startCamera();
-    initBeat(stream); loadStreak(); buildDebug(); refreshAnniv();
-    $("lobby").classList.add("hidden"); $("hud").classList.remove("hidden"); $("modebar").classList.remove("hidden");
-    if (callMode) { inCall = true; connect($("roomInput").value.trim(), stream); }
-    else { inCall = false; setConn("solo"); }
+    initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
+    inCall = !!callMode;
+    if (callMode) connect($("roomInput").value.trim(), stream); else setConn("solo");
+    show("menu");
     requestAnimationFrame(loop);
   } catch (e) { $("lobbyHint").textContent = "Couldn't start: " + (e.message || e) + " — allow camera & use https/localhost."; }
 }
 
+const copyLink = async (el) => { try { await navigator.clipboard.writeText(location.href); const o = el.textContent; el.textContent = "✓ copied"; setTimeout(() => (el.textContent = o), 1500); } catch (_) {} };
 $("joinBtn").addEventListener("click", () => {
   if (!$("roomInput").value.trim()) { $("roomInput").focus(); return; }
   const u = new URL(location.href); u.searchParams.set("room", $("roomInput").value.trim()); history.replaceState(null, "", u);
   boot(true);
 });
 $("soloBtn").addEventListener("click", () => boot(false));
-$("copyLinkBtn").addEventListener("click", async () => { await navigator.clipboard.writeText(location.href); $("copyLinkBtn").textContent = "✓ Copied!"; setTimeout(() => ($("copyLinkBtn").textContent = "🔗 Copy invite link"), 1500); });
-$("legendBtn").addEventListener("click", () => $("legend").classList.toggle("hidden"));
-$("legendClose").addEventListener("click", () => $("legend").classList.add("hidden"));
-$("muteFxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.4; });
-$("snapBtn").addEventListener("click", () => canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "webcam-magic.png"; a.click(); }));
-$("leaveBtn").addEventListener("click", () => location.reload());
+$("copyLinkBtn").addEventListener("click", (e) => copyLink(e.target));
+$("copyLink2").addEventListener("click", (e) => copyLink(e.target));
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
-$("loveBtn").addEventListener("click", sendSweet);
-$("confettiBtn").addEventListener("click", fireConfetti);
 $("anniv").addEventListener("click", setAnniv);
-$("ritualBtn").addEventListener("click", sendRitual);
 let adultOn = false;
 $("adultBtn").addEventListener("click", (e) => {
   if (!adultOn && !confirm("Enable the 18+ flirty deck? (suggestive, playful — nothing explicit)")) return;
   adultOn = !adultOn; games.setAdult(adultOn);
   e.target.style.opacity = adultOn ? 1 : 0.5; e.target.title = adultOn ? "18+ flirty deck ON" : "18+ flirty deck off";
 });
+// ready screen
+$("readyStart").addEventListener("click", () => navTo("play", pendingMode));
+$("readyBack").addEventListener("click", () => navTo("menu"));
+// play screen controls
+$("menuBtn").addEventListener("click", () => navTo("menu"));
+$("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.45; });
+$("snapBtn").addEventListener("click", () => host.snapshot("webcam-magic"));
+$("leaveBtn").addEventListener("click", () => location.reload());
+$("loveBtn2").addEventListener("click", sendSweet);
+$("confettiBtn2").addEventListener("click", fireConfetti);
+const SIZES = ["s", "m", "l"];
+$("sizeBtn").addEventListener("click", (e) => { const cur = $("stage").dataset.size, n = SIZES[(SIZES.indexOf(cur) + 1) % 3]; $("stage").dataset.size = n; e.target.textContent = "⤢ " + n.toUpperCase(); });
 
 // live tuning panel — sliders bound to gestures.TUNE
 const TUNE_META = {
@@ -558,42 +654,6 @@ function buildDebug() {
     box.appendChild(row);
   }
 }
-
-// mode bar
-const MODE_ACTIONS = {
-  share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
-  toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
-  draw: [["clear", "clear"]],
-  stamp: [["next", "next"], ["clear", "clear"]],
-  rps: [["start", "go"]],
-  photobooth: [["shoot", "📸 3·2·1"]],
-  synctest: [["go", "go"]],
-  spinner: [["spin", "🎡 spin"]],
-  dressup: [["next", "👒 next hat"], ["off", "off"]],
-  truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]],
-  tictactoe: [["reset", "↺ reset"]],
-  mashup: [["go", "💞 mash"]],
-  countdown: [["set", "📅 set date"]],
-  pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
-  karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]],
-  kisscam: [["start", "💋 start"]],
-  pickup: [["go", "💘 line"]],
-  oursong: [["set", "🎶 name it"]],
-  mailbox: [["write", "💌 write"]],
-  stars: [["clear", "clear"]],
-  lovecalc: [["calc", "❤️ calc"]],
-  scrapbook: [["prev", "◀"], ["next", "▶"], ["clear", "🗑"]],
-  bucket: [["add", "➕ add"], ["clear", "🗑"]],
-};
-function selectMode(name, btn) {
-  btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);
-  games.setMode(name); FX.clearParticles();
-  document.querySelectorAll("#modebar .mode").forEach((b) => b.classList.toggle("on", b === btn));
-  const bar = $("actionbar"); bar.innerHTML = "";
-  (MODE_ACTIONS[name] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.className = "ghost wide"; b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
-  bar.classList.toggle("hidden", !(MODE_ACTIONS[name]));
-}
-document.querySelectorAll("#modebar .mode").forEach((b) => b.addEventListener("click", () => selectMode(b.dataset.mode, b)));
 
 const pre = new URL(location.href).searchParams.get("room");
 if (pre) { $("roomInput").value = pre; $("copyLinkBtn").classList.remove("hidden"); }
