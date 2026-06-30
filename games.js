@@ -4,6 +4,7 @@
 // `net.send(obj)` broadcasts to the partner; app routes non-gesture msgs to onNet.
 
 import * as FX from "./effects.js";
+import { createShareMode } from "./share.js";
 const { W, H, MID, toCanvas, rnd, pick } = FX;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -303,7 +304,7 @@ export function createGames(net) {
   }
   function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
 
-  const factories = { toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode };
+  const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();

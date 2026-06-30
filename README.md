@@ -62,6 +62,7 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 ## Modes (top bar)
 
 - **✨ Free** — all the passive gesture/face effects above
+- **📎 Share** — the "Shacam" mode: load an **image** or **PDF**, or capture a **window/screen**, then grab/move them with a pinch, **resize/rotate with two hands**, and **swipe your palm to flip PDF pages** — all composited over your webcam. Content + transforms sync to your partner (they auto-enter Share to see it). Hit 📸 to snapshot the composite.
 - **🧸 Toys** — physics objects you pinch-grab & throw; open palm = magnet; gravity toggle; drop one on your nose to wear it (section 5)
 - **✏️ Draw** — pinch to paint together on a shared canvas, with a faint heart template (section 6)
 - **🏷️ Stamp** — pinch to place stickers; cycle the sticker (section 6)
