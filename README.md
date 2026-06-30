@@ -76,6 +76,16 @@ happy, cool when sad) · blow a kiss → fog drifts over their screen and they w
 - **😈 Truth or Dare** — cute couple prompts, synced
 - **🎱 Magic 8-Ball** — ask a yes/no question and **shake your head** to get an answer
 - **#️⃣ Tic-Tac-Toe** — real 2-player, pinch a cell to place your mark
+- **💞 Name Mash** — generates your couple name
+- **⏳ Countdown** — days till you next meet
+- **🎨 Pictionary** — one draws (pinch), you both guess out loud
+- **🧘 Breathe** — a synced expanding ring to breathe together
+- **🎤 Karaoke** — paste lyrics for a scrolling crawl
+- **💋 Kiss Cam** — countdown → both pucker → smooch explosion
+- **🕯️ Mood** — candlelit ambiance, just the two of you
+- **💘 Lines** — pickup-line / compliment roulette
+
+**🔞 toggle (HUD):** opt-in flirty deck — makes Truth-or-Dare and Lines cheekier. Suggestive and playful only; no explicit content.
 
 ## 💕 Lovey-dovey couple moments (Free mode)
 

@@ -18,8 +18,9 @@ function cursor(g) {
 }
 
 export function createGames(net, host) {
-  let M = null, modeName = "free", authority = true;
+  let M = null, modeName = "free", authority = true, adult = false;
   const setAuthority = (b) => { authority = b; };
+  const setAdult = (b) => { adult = b; };
 
   // ---------------- TOYS (physics + grab + throw + gravity + magnet) -------
   function toysMode() {
@@ -411,9 +412,12 @@ export function createGames(net, host) {
   function truthDareMode() {
     const TRUTH = ["What did you first notice about me? 😏", "Favorite memory of us? 💭", "Most embarrassing crush? 🙈", "What do you miss most right now? 🥺", "One thing you've never told me? 🤫", "Describe me in 3 words 💬", "Dream date? ✨", "Who said 'I love you' in your head first? 💘"];
     const DARE = ["Send a flying kiss 😘", "Best dance move, go 💃", "Silliest face 🤪", "Sing 5 seconds of a song 🎤", "Show your last photo 📷", "3 air high-fives 🙌", "Wink at the camera 😉", "Say 'I love you' in a funny voice 💕"];
+    // flirtier deck unlocked by the 18+ toggle (suggestive, not explicit)
+    const TRUTH_A = ["Where do you most want to be kissed? 😏", "What outfit of mine do you love most? 👀", "Describe your ideal cuddle 🫠", "Most romantic thing you'd do if I were there? 💞", "Rate our last kiss 1-10 😘", "What's the first thing you'd do if I walked in right now? 😉"];
+    const DARE_A = ["Blow a slow kiss 😘", "Bite your lip at the camera 😏", "Whisper something only I'd want to hear 🤫", "Give the camera your most kissable face 💋", "Slow wink + a 'come here' 😉", "Your most charming move, go 🔥"];
     let text = "press truth or dare", kind = "";
     return {
-      action(a) { if (a === "truth") { kind = "truth"; text = pick(TRUTH); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(DARE); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
+      action(a) { if (a === "truth") { kind = "truth"; text = pick(adult ? TRUTH_A : TRUTH); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(adult ? DARE_A : DARE); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
       onNet(m) { if (m.t === "td") { kind = m.kind; text = m.text; FX.flood(0, W, kind === "dare" ? ["🔥"] : ["💬"], 14); } },
       draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, kind === "dare" ? "🔥 DARE" : kind === "truth" ? "💬 TRUTH" : "😈 Truth or Dare", text); },
     };
@@ -467,6 +471,127 @@ export function createGames(net, host) {
     };
   }
 
+  // ---------------- COUPLE-NAME MASHUP -------------------------------------
+  function mashupMode() {
+    let a = "", b = "", out = "press mash 💞";
+    const half = (s, front) => front ? s.slice(0, Math.ceil(s.length / 2)) : s.slice(Math.floor(s.length / 2));
+    const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "?";
+    return {
+      action(act) {
+        if (act !== "go") return;
+        if (!a || !b) { const v = prompt("Your two names (comma separated):", ""); if (v) { const p = v.split(","); a = (p[0] || "").trim(); b = (p[1] || "").trim(); } }
+        if (a && b) { out = cap(pick([half(a, 1) + half(b, 0), half(b, 1) + half(a, 0), half(a, 1) + half(b, 1)])); net.send({ t: "mash", text: out }); FX.confetti(W / 2, H / 2, 30); FX.Sound.chime(); }
+      },
+      onNet(m) { if (m.t === "mash") { out = m.text; FX.confetti(W / 2, H / 2, 30); } },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "💞 " + out, "your couple name"); },
+    };
+  }
+
+  // ---------------- "DAYS TILL WE MEET" COUNTDOWN --------------------------
+  function countdownMode() {
+    const get = () => { try { return localStorage.getItem("wm_meet"); } catch (_) { return null; } };
+    return {
+      action(a) { if (a === "set") { const v = prompt("Date you'll next meet (YYYY-MM-DD):", get() || ""); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) try { localStorage.setItem("wm_meet", v.trim()); } catch (_) {} } },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; const d = get();
+        if (!d) return big(ctx, "📅 set the date", "press “set date” for your next meetup");
+        const days = Math.ceil((new Date(d).getTime() - Date.now()) / 864e5);
+        big(ctx, days > 0 ? `${days} days 🥹` : days === 0 ? "TODAY!! 🎉" : "together at last 💕", days > 0 ? "till we're together" : "");
+      },
+    };
+  }
+
+  // ---------------- PICTIONARY (one draws, both say it out loud) -----------
+  function pictionaryMode() {
+    const WORDS = ["cat", "pizza", "heart", "house", "sun", "star", "fish", "tree", "car", "flower", "moon", "cake", "boat", "dog", "robot", "banana", "guitar", "ghost"];
+    let strokes = [], cur = { 0: null, 1: null }, isDrawer = false, word = "", revealed = false;
+    const add = (side, pt) => { let c = cur[side]; if (!c) { c = { side, pts: [] }; strokes.push(c); cur[side] = c; } c.pts.push(pt); };
+    return {
+      enter() { strokes = []; cur = { 0: null, 1: null }; isDrawer = false; word = ""; revealed = false; },
+      action(a) { if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); } else if (a === "reveal") { revealed = true; net.send({ t: "pic-reveal", w: word }); } else if (a === "clear") { strokes = []; net.send({ t: "draw-clear" }); } },
+      onNet(m) { if (m.t === "pic-role") { isDrawer = false; word = ""; revealed = false; } else if (m.t === "pic-reveal") { word = m.w; revealed = true; } else if (m.t === "draw") add(1, { x: m.x, y: m.y }); else if (m.t === "draw-up") cur[1] = null; else if (m.t === "draw-clear") strokes = []; },
+      update(dt, local) { if (isDrawer && local && local.pinch && local.pinch.active) { const pt = { x: local.pinch.x, y: local.pinch.y }; add(0, pt); net.send({ t: "draw", x: pt.x, y: pt.y }); } else if (cur[0]) { cur[0] = null; net.send({ t: "draw-up" }); } },
+      draw(ctx) {
+        ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 6;
+        for (const st of strokes) { if (st.pts.length < 2) continue; ctx.beginPath(); st.pts.forEach((p, i) => { const c = toCanvas(p, st.side); i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y); }); ctx.stroke(); }
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui";
+        ctx.fillText(isDrawer && !revealed ? "✏️ draw: " + word + "  (don't say it!)" : revealed ? "it was: " + word + " 🎉" : "🤔 guess out loud what they're drawing!", W / 2, 40);
+        hint(ctx, "Pictionary — “new word” to be the drawer • pinch to draw • “reveal” the answer");
+      },
+    };
+  }
+
+  // ---------------- SYNCED BREATHING / CALM --------------------------------
+  function breathingMode() {
+    const seq = [["breathe in 🌬️", 4], ["hold", 2], ["breathe out 😌", 4], ["hold", 2]]; let t = 0;
+    return {
+      exit() { FX.setTint(120, 170, 255, 0); },
+      update(dt) { FX.setTint(120, 170, 255, 0.12); t += dt; },
+      draw(ctx) {
+        const total = 12, tt = t % total; let acc = 0, idx = 0, pr = 0;
+        for (let i = 0; i < seq.length; i++) { if (tt < acc + seq[i][1]) { idx = i; pr = (tt - acc) / seq[i][1]; break; } acc += seq[i][1]; }
+        const scale = idx === 0 ? 0.45 + pr * 0.55 : idx === 1 ? 1 : idx === 2 ? 1 - pr * 0.55 : 0.45;
+        ctx.save(); ctx.translate(W / 2, H / 2); const r = 90 + scale * 170;
+        ctx.fillStyle = "rgba(150,190,255,.15)"; ctx.strokeStyle = "rgba(180,210,255,.9)"; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "30px system-ui"; ctx.fillText(seq[idx][0], 0, 0); ctx.restore();
+        ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "16px system-ui"; ctx.fillText("breathe together 💙", W / 2, H - 26);
+      },
+    };
+  }
+
+  // ---------------- KARAOKE LYRIC CRAWL ------------------------------------
+  function karaokeMode() {
+    let lines = [], y = H, speed = 42;
+    return {
+      action(a) { if (a === "lyrics") { const v = prompt("Paste lyrics (one line per line):"); if (v) { lines = v.split("\n"); y = H; net.send({ t: "lyrics", text: v }); } } else if (a === "restart") y = H; },
+      onNet(m) { if (m.t === "lyrics") { lines = m.text.split("\n"); y = H; } },
+      update(dt) { if (lines.length) { y -= speed * dt; if (y < -lines.length * 46) y = H; } },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.font = "30px system-ui";
+        if (!lines.length) return big(ctx, "🎤 Karaoke", "paste lyrics to start the crawl");
+        lines.forEach((ln, i) => { const ly = y + i * 46; if (ly > -40 && ly < H + 40) { ctx.globalAlpha = 1 - Math.min(1, Math.abs(ly - H * 0.4) / (H * 0.6)); ctx.fillText(ln, W / 2, ly); } });
+        ctx.globalAlpha = 1;
+      },
+    };
+  }
+
+  // ---------------- KISS CAM -----------------------------------------------
+  function kissCamMode() {
+    let phase = "idle", t = 0, success = false;
+    return {
+      action(a) { if (a === "start") { phase = "count"; t = 3; success = false; net.send({ t: "kisscam" }); } },
+      onNet(m) { if (m.t === "kisscam") { phase = "count"; t = 3; success = false; } },
+      update(dt, local, remote) {
+        if (phase === "count") { t -= dt; if (t <= 0) { phase = "kiss"; t = 4; } }
+        else if (phase === "kiss") { t -= dt; const solo = !(remote && remote.present); const mk = local && local.face && local.face.kiss > 0.4, rk = remote && remote.face && remote.face.kiss > 0.4; if ((solo ? mk : mk && rk) && !success) { success = true; FX.flood(0, W, ["💋", "❤️", "💕"], 80, true); FX.burst(W / 2, H / 2, ["💋"], 30, 400); FX.Sound.chime(); } if (t <= 0) phase = "idle"; }
+      },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; if (phase === "idle") big(ctx, "💋 Kiss Cam", "press start — then pucker up!"); else if (phase === "count") big(ctx, Math.ceil(t) + "", "get ready to kiss…"); else big(ctx, success ? "awww 😘💕" : "KISS! 💋", success ? "" : "pucker up!"); },
+    };
+  }
+
+  // ---------------- MOOD LIGHTING (candlelit ambiance) ---------------------
+  function moodMode() {
+    let acc = 0;
+    return {
+      exit() { FX.setTint(255, 110, 90, 0); FX.setVignette(0, false); FX.setVignette(1, false); },
+      update(dt) { FX.setTint(255, 110, 90, 0.3); FX.setVignette(0, true); FX.setVignette(1, true); acc += dt; if (acc > 0.5) { acc = 0; FX.emoji(rnd(0, W), H + 20, rnd(-10, 10), -rnd(20, 50), pick(["🕯️", "🌹", "✨", "🥂"]), rnd(22, 38), rnd(4, 6), -20, { vr: 0 }); } },
+      draw(ctx) { ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.textAlign = "center"; ctx.fillText("🕯️ mood lighting — just the two of you", W / 2, H - 26); ctx.restore(); },
+    };
+  }
+
+  // ---------------- PICKUP / COMPLIMENT ROULETTE ---------------------------
+  function pickupMode() {
+    const SWEET = ["Are you a magnet? I'm drawn to you 🧲", "You're the best part of my day ☀️", "I'd cross any distance for you ✈️", "You make my heart skip 💓", "Cutest human alive, certified ✅", "I like you a lottle — little + a lot 🥰"];
+    const SPICY = ["Is it hot in here, or just you? 🥵", "Come closer to the camera… 😏", "You + me + zero distance = trouble 😈", "These lips look lonely, wanna fix that? 💋", "Stop being so distractingly cute 🔥", "I've got plans for you later 😉"];
+    let text = "press for a line 💘";
+    return {
+      action(a) { if (a === "go") { text = pick(adult ? SPICY : SWEET); net.send({ t: "pickup", text }); FX.flood(0, W, adult ? ["💋", "🔥"] : ["💘"], 16); FX.Sound.chime(); } },
+      onNet(m) { if (m.t === "pickup") { text = m.text; FX.flood(0, W, ["💘"], 14); } },
+      draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "💘", text); },
+    };
+  }
+
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
@@ -480,7 +605,8 @@ export function createGames(net, host) {
   function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
 
   const factories = { share: createShareMode(net), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
-    dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode };
+    dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode,
+    mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
@@ -489,7 +615,7 @@ export function createGames(net, host) {
     if (M && M.enter) M.enter();
   }
   return {
-    setMode, setAuthority,
+    setMode, setAuthority, setAdult,
     get mode() { return modeName; },
     update(dt, local, remote) { if (M && M.update) M.update(dt, local, remote); },
     draw(ctx) { if (M && M.draw) M.draw(ctx); },

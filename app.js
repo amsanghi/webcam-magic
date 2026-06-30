@@ -496,6 +496,12 @@ $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden
 $("loveBtn").addEventListener("click", sendSweet);
 $("confettiBtn").addEventListener("click", fireConfetti);
 $("anniv").addEventListener("click", setAnniv);
+let adultOn = false;
+$("adultBtn").addEventListener("click", (e) => {
+  if (!adultOn && !confirm("Enable the 18+ flirty deck? (suggestive, playful — nothing explicit)")) return;
+  adultOn = !adultOn; games.setAdult(adultOn);
+  e.target.style.opacity = adultOn ? 1 : 0.5; e.target.title = adultOn ? "18+ flirty deck ON" : "18+ flirty deck off";
+});
 
 // live tuning panel — sliders bound to gestures.TUNE
 const TUNE_META = {
@@ -532,6 +538,12 @@ const MODE_ACTIONS = {
   dressup: [["next", "👒 next hat"], ["off", "off"]],
   truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]],
   tictactoe: [["reset", "↺ reset"]],
+  mashup: [["go", "💞 mash"]],
+  countdown: [["set", "📅 set date"]],
+  pictionary: [["word", "🎨 new word"], ["reveal", "👀 reveal"], ["clear", "clear"]],
+  karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]],
+  kisscam: [["start", "💋 start"]],
+  pickup: [["go", "💘 line"]],
 };
 function selectMode(name, btn) {
   btn = btn || document.querySelector(`#modebar .mode[data-mode="${name}"]`);
