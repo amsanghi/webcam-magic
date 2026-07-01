@@ -108,7 +108,7 @@ export function createAI({ net, getAuthority, tools }) {
       if (m.t === "cap") {
         peerTier = m.tier; recompute();
         // adopt the partner's server if I don't already have my own reachable one
-        if (m.server && tierInfo.tier < 3) checkServer(m.server).then((ok) => { if (ok) { serverUrl = m.server; serverModel = m.serverModel || getServerModel(); tierInfo = { tier: 3, reason: "partner's server", model: { engine: "server", url: serverUrl, model: serverModel } }; recompute(); } });
+        if (m.server && tierInfo.tier < 3) checkServer(m.server).then((ok) => { if (ok) { serverUrl = m.server; serverModel = m.serverModel || getServerModel(); setServer(serverUrl); setServerModel(serverModel); tierInfo = { tier: 3, reason: "partner's server", model: { engine: "server", url: serverUrl, model: serverModel } }; recompute(); } });
         if (m.reply) net.send({ t: "cap", tier: tierInfo.tier, server: serverUrl || undefined, serverModel: serverUrl ? serverModel : undefined });
       } else if (m.t === "llm-req" && amGen) { const text = (await localGen(m.spec)) || ""; net.send({ t: "llm-res", id: m.id, text }); }
       else if (m.t === "llm-res") { const r = pending.get(m.id); if (r) { pending.delete(m.id); r((m.text && m.text.trim()) || ""); } }
