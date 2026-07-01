@@ -9,6 +9,7 @@ import { createVoice } from "./perception/voice.js";
 import { createHost } from "./core/host.js";
 import { createDetectors } from "./core/detectors.js";
 import { createAudio } from "./core/audio.js";
+import { createAI } from "./core/ai.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -46,6 +47,18 @@ const host = createHost(canvas, localVideo);
 const games = createGames(net, host);
 const { stepObjects, stepPose, stepSeg } = createDetectors(host, localVideo);
 const audio = createAudio(host, () => games.mode === "free" && fxOn);
+
+// ---- AI layer (host.ai): tiered on-device LLM + powerhouse→receiver broadcast.
+// `aiTools` is the vocabulary the AI Game Master can call (emit as JSON actions).
+const aiTools = {
+  effect: (n) => { const map = { confetti: () => fireConfetti(), hearts: () => FX.flood(0, W, ["❤️", "💖", "💕"], 60, true), rainbow: () => FX.triggerRainbow(), sparkle: () => FX.confetti(W / 2, H * 0.4, 20), shake: () => FX.addShake(0.5) }; (map[n] || map.sparkle)(); },
+  mood: (t) => { const map = { candlelight: () => { FX.setWeather("stars", 0.5); FX.setTint(255, 150, 120, 0.18); }, party: () => { FX.triggerRainbow(); FX.setWeather("stars", 0.6); }, cozy: () => FX.setTint(255, 170, 140, 0.15) }; (map[t] || map.cozy)(); },
+  banner: (txt) => FX.banner(W / 2, H * 0.3, String(txt || "").slice(0, 60)),
+  game: (id) => { if (MODE_INFO[id]) navTo("play", id); },
+  snap: () => host.snapMoment(),
+};
+const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
+host.ai = ai;
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -469,6 +482,7 @@ function route(data) {
   if (data && data.k === "g") { setRole(data.pid); remoteG = Object.assign(G.blankState(), data); remoteG.present = true; return; }
   if (!data) return;
   if (data.t === "nav") { navTo(data.screen, data.mode, true); return; }
+  if (data.t === "cap" || data.t === "llm-req" || data.t === "llm-res") { host.ai.onNet(data); return; }
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
   games.onNet(data); handleFreeNet(data);
 }
@@ -491,7 +505,7 @@ function connect(word, stream) {
       // role (side / who judges) comes from the stable pid exchanged in packets, not selfId
       if (!primary) { primary = entry; sendMsg = (o) => { const e = entries.find((x) => x.connected); if (e) e.action.send(o); }; }   // one transport only (no double-send)
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
-      setConn("connected 💚");
+      setConn("connected 💚"); ai.announce();
     };
     r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { connectedOnce = false; remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); scheduleReconnect(); } };
     r.onPeerStream = (st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
@@ -571,6 +585,7 @@ async function boot(callMode) {
     await initModels();
     const stream = await startCamera();
     audio.initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
+    ai.init();
     inCall = !!callMode;
     if (callMode) connect($("roomInput").value.trim(), stream); else setConn("solo");
     show("menu");

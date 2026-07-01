@@ -16,6 +16,10 @@ src/
                       objects/pose/seg slots, audio, pointer, videoHue, sensors, geo)
     detectors.js      createDetectors() → lazy object / pose / segmenter detectors, stepped per frame
     audio.js          createAudio() → mic analyser: level, pitch, beat transient, clap detection
+    capabilities.js   detectTier() (0 static / 1 light / 2 powerhouse) + amGenerator() election
+    ai.js             createAI() → host.ai: ask()/load()/onNet()/runActions() + content boundary
+    llm.js            createLLM() → main-thread manager around the worker (load state, generate)
+    llm.worker.js     module worker: lazy-loads WebLLM (t2) or transformers.js (t1) from CDN
   perception/
     gestures.js       classifyHands / classifyFace from MediaPipe landmarks; blankState(); TUNE thresholds
     voice.js          createVoice() → Web Speech recognition wrapper
@@ -142,6 +146,25 @@ Passed to `createGames`; available to modes as `host`:
 | `sensors` `{on, beta, gamma, shake}` / `requestSensors()` | phone orientation/motion |
 | `geo()` | one-shot geolocation |
 | `moments` | in-memory session gallery |
+
+## AI layer (host.ai)
+
+Optional on-device LLM, exposed to modes as `host.ai` and wired in `app.js`.
+
+- **Tiers** (`core/capabilities.js`): 0 static / 1 light (transformers.js + Qwen2.5-0.5B) / 2
+  powerhouse (WebLLM + Llama-3.1-8B), auto-detected from WebGPU + platform + memory, with a
+  `localStorage` override.
+- **Generator election** (`amGenerator`): peers exchange tier via a `{t:"cap"}` message; the higher
+  tier generates, ties break to the authority. The generator runs the model and the other peer
+  requests text over the channel (`{t:"llm-req"}` → `{t:"llm-res"}`) and just displays it.
+- **`host.ai.ask(spec, fallback)`** is the single call modes use. It resolves to a string *always* —
+  generating locally, requesting from the peer, or returning the static `fallback()` deck pick. It
+  never triggers a download; loading is explicit via `host.ai.load()` (a one-time cached fetch), and
+  generation runs in `llm.worker.js` off the render loop.
+- **Tool use** (`host.ai.runActions`): the Game Master model emits JSON actions executed via the
+  `aiTools` map in `app.js` (effects, mood, banner, jump-to-game, snapshot).
+- **Boundary:** the system prompt (`AI_SYS` in `core/ai.js`) keeps output flirty-but-never-explicit.
+- Everything is CDN ES modules + client-side model download → works on the static GitHub Pages host.
 
 ## What stayed in app.js (intentional)
 
