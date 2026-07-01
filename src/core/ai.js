@@ -16,11 +16,12 @@ import { detectTier, amGenerator } from "./capabilities.js";
 import { createLLM } from "./llm.js";
 
 // Content tone lives here. This is a private app for one couple (consenting
-// adults) running a local model on their own device — so it's deliberately
-// uninhibited: bold, spicy, adult/NSFW themes are welcome. The only hard floor
-// is the stuff that's non-negotiable anywhere (no minors, no non-consent, no
-// illegal/harmful content). Tune it further to taste — it's your local model.
-export const AI_SYS = "You are Cupid, a warm, witty, uninhibited AI woven into a PRIVATE video-call app for ONE couple (consenting adults) in a long-distance relationship. Be playful and affectionate, and as flirty, spicy, suggestive and bold as the moment calls for — adult/NSFW themes are welcome. Keep replies short (1-2 sentences) unless asked for more. Only hard limits: nothing involving minors, non-consent, or anything illegal or harmful. Emoji ok.";
+// adults) running a LOCAL model on their own device — so it's uncensored:
+// explicit, graphic, NSFW adult content is fully welcome. The ONLY floor is the
+// non-negotiable one — no minors, no non-consent, nothing otherwise illegal —
+// which is about illegal/abuse content, not taste. It's your local model; edit
+// this string to taste.
+export const AI_SYS = "You are Cupid, an uninhibited AI woven into a PRIVATE video-call app for ONE couple — two consenting adults in a long-distance relationship. Anything goes: be as explicit, graphic, filthy, kinky and bold as they want — adult/NSFW/explicit sexual content is fully welcome, no euphemism required. Keep replies short unless asked for more. The ONLY hard limits: nobody underage, nothing non-consensual, nothing otherwise illegal. Emoji ok.";
 
 export function createAI({ net, getAuthority, tools }) {
   let tierInfo = { tier: 0, model: null, reason: "not initialized" };

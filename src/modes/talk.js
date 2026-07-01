@@ -20,7 +20,7 @@ export function deepTalkMode() {
   let text = "press next 💬";
   return {
     onNet(m) { if (m.t === "dt") text = m.text; },
-    action(a) { if (a === "next") { text = pick(Q); net.send({ t: "dt", text }); FX.flood(0, W, ["💬", "💕"], 10); } },
+    action(a) { if (a === "next") { host.ai.ask({ user: "Give ONE warm, meaningful connection question for a committed long-distance couple.", max: 40, temp: 0.9 }, () => pick(Q)).then((t) => { text = (t || "").trim() || pick(Q); net.send({ t: "dt", text }); FX.flood(0, W, ["💬", "💕"], 10); if (host.chat) host.chat.say("ai", "💬 " + text); }); } },
     draw(ctx) { big(ctx, "💬", text); hint(ctx, "“next” for a new question — take turns answering"); },
   };
 }
@@ -84,7 +84,7 @@ export function telepathyMode() {
   const start = (c) => { cat = c; mine = ""; theirs = ""; phase = "answer"; };
   return {
     onNet(m) { if (m.t === "tele-go") start(m.c); else if (m.t === "tele-ans") { theirs = m.w; check(); } },
-    async action(a) { if (a === "go") { const c = pick(CATS); start(c); net.send({ t: "tele-go", c }); } else if (a === "answer") { if (phase !== "answer") return; const v = await host.ask("Think alike! Name " + cat + ":"); if (v) { mine = v.trim(); net.send({ t: "tele-ans", w: mine }); check(); } } },
+    async action(a) { if (a === "go") { const cc = await host.ai.ask({ system: "Name ONE fun short category for a telepathy game where a couple tries to say the same thing, e.g. 'a movie 🎬' or 'a date idea 💕'. Return just the category.", user: "one category", max: 12, temp: 1.1 }, () => pick(CATS)); const c = (cc || "").trim() || pick(CATS); start(c); net.send({ t: "tele-go", c }); } else if (a === "answer") { if (phase !== "answer") return; const v = await host.ask("Think alike! Name " + cat + ":"); if (v) { mine = v.trim(); net.send({ t: "tele-ans", w: mine }); check(); } } },
     draw(ctx) {
       if (phase === "idle") return big(ctx, "🧠 Telepathy", "press “new”, then both name the same thing");
       if (phase === "reveal") { const match = mine.toLowerCase() === theirs.toLowerCase(); big(ctx, `${mine || "?"}  •  ${theirs || "?"}`, match ? "🎉 telepathy! you matched" : "😜 not this time — “new” to retry"); }
@@ -102,7 +102,7 @@ export function howWellMode() {
   return {
     onNet(m) { if (m.t === "hw-go") { q = m.q; answerer = m.an; truth = ""; guess = ""; phase = "play"; } else if (m.t === "hw-truth") { truth = m.v; check(); } else if (m.t === "hw-guess") { guess = m.v; check(); } },
     async action(a) {
-      if (a === "go") { q = pick(Q); answerer = meIdx(); truth = ""; guess = ""; phase = "play"; net.send({ t: "hw-go", q, an: answerer }); }
+      if (a === "go") { const qq = await host.ai.ask({ system: "Write ONE short first-person question about oneself for a 'how well do you know me' couple game, ending with '?', e.g. 'my dream vacation?'. Return just the question.", user: "one question", max: 16, temp: 1.0 }, () => pick(Q)); q = (qq || "").trim() || pick(Q); answerer = meIdx(); truth = ""; guess = ""; phase = "play"; net.send({ t: "hw-go", q, an: answerer }); }
       else if (a === "answer") { if (phase !== "play") return; if (meIdx() === answerer) { const v = await host.ask("(secret) Your true answer — " + q); if (v) { truth = v.trim(); net.send({ t: "hw-truth", v: truth }); check(); } } else { const v = await host.ask("Guess their answer — " + q); if (v) { guess = v.trim(); net.send({ t: "hw-guess", v: guess }); check(); } } }
     },
     draw(ctx) {
@@ -121,7 +121,7 @@ export function whoMoreMode() {
   const start = (x) => { q = x; phase = "count"; t = 4; mine = 0; theirs = 0; };
   return {
     onNet(m) { if (m.t === "wm") start(m.q); },
-    action(a) { if (a === "go") { const x = pick(Q); start(x); net.send({ t: "wm", q: x }); } },
+    action(a) { if (a === "go") { host.ai.ask({ system: "Complete 'Who's more likely…' with ONE short playful or flirty ending only, e.g. 'to text first 📱'. Return just the ending.", user: "one 'who's more likely' ending for a couple", max: 18, temp: 1.1 }, () => pick(Q)).then((x) => { x = (x || "").trim() || pick(Q); start(x); net.send({ t: "wm", q: x }); }); } },
     update(dt, local, remote) {
       if (!authority) return;
       if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; phase = "done"; t = 4; } }

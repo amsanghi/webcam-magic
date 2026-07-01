@@ -185,7 +185,7 @@ size). The static tier is always the floor, so the AI features degrade gracefull
 ## Content
 
 This is a **private app for one couple** running a **local** model on their own devices — nothing
-is sent to a server. The tone is deliberately uninhibited and adult: the **After dark 🌶️** and
-**AI ✨** modes lean bold, spicy and suggestive by design, at the couple's discretion. The tone
-lives in `AI_SYS` in `src/core/ai.js` and is theirs to tune. The only hard floor kept in the prompt
-is the non-negotiable stuff (nothing involving minors, non-consent, or anything illegal/harmful).
+is sent to a server. The tone is uncensored and adult by design: the **After dark 🌶️** and
+**AI ✨** modes are fully explicit-capable, at the couple's discretion. The tone lives in `AI_SYS`
+in `src/core/ai.js` and is theirs to tune. The only hard floor kept in the prompt is the
+non-negotiable one — nobody underage, nothing non-consensual, nothing otherwise illegal.

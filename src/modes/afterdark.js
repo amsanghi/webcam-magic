@@ -8,7 +8,12 @@ export function truthDareMode() {
   const DARE_A = ["Blow a slow kiss 😘", "Bite your lip at the camera 😏", "Whisper something only I'd want to hear 🤫", "Give the camera your most kissable face 💋", "Slow wink + a 'come here' finger 😉", "Trace a slow heart on your lips 💋", "Do your most charming 'miss you' eyes 🥺😏", "Send a 3-second slow-motion kiss 💋", "Give a flirty over-the-shoulder look 😏", "Show me where you'd want my hand right now (keep it classy 😏)", "Undo one button / push up a sleeve 😉", "Strike your most confident pose 🔥"];
   let text = "press truth or dare", kind = "";
   return {
-    action(a) { if (a === "truth") { kind = "truth"; text = pick(TRUTH_A); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(DARE_A); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
+    action(a) {
+      if (a !== "truth" && a !== "dare") return;
+      kind = a; const isDare = a === "dare";
+      host.ai.ask({ user: isDare ? "Give ONE bold, spicy dare for this couple on a video call." : "Give ONE flirty, spicy truth question for this couple.", max: 55, temp: 1.05 }, () => pick(isDare ? DARE_A : TRUTH_A))
+        .then((t) => { text = (t || "").trim() || pick(isDare ? DARE_A : TRUTH_A); net.send({ t: "td", kind, text }); if (isDare) FX.flood(0, W, ["🔥"], 14); if (host.chat) host.chat.say("ai", (isDare ? "🔥 " : "💬 ") + text); });
+    },
     onNet(m) { if (m.t === "td") { kind = m.kind; text = m.text; FX.flood(0, W, kind === "dare" ? ["🔥"] : ["💬"], 14); } },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, kind === "dare" ? "🔥 DARE" : kind === "truth" ? "💬 TRUTH" : "😈 Truth or Dare", text); },
   };
@@ -20,7 +25,7 @@ export function pickupMode() {
   const SPICY = ["Is it hot in here, or just you? 🥵", "Come closer to the camera… 😏", "You + me + zero distance = trouble 😈", "These lips look lonely — wanna fix that? 💋", "Stop being so distractingly cute 🔥", "I've got plans for you later 😉", "Wish I could close this distance right now 😩💕", "You have no idea what that smile does to me 🫠", "Keep looking at me like that and I won't behave 😈", "Counting down till I can wrap you up 🤗🔥", "That outfit is doing things to me 👀", "Save that energy for when we're in the same room 😏"];
   let text = "press for a line 💘";
   return {
-    action(a) { if (a === "go") { text = pick(SPICY); net.send({ t: "pickup", text }); FX.flood(0, W, ["💋", "🔥"], 16); FX.Sound.chime(); } },
+    action(a) { if (a === "go") { host.ai.ask({ user: "Give ONE bold, flirty pick-up line to send my partner.", max: 45, temp: 1.1 }, () => pick(SPICY)).then((t) => { text = (t || "").trim() || pick(SPICY); net.send({ t: "pickup", text }); FX.flood(0, W, ["💋", "🔥"], 16); FX.Sound.chime(); if (host.chat) host.chat.say("ai", text); }); } },
     onNet(m) { if (m.t === "pickup") { text = m.text; FX.flood(0, W, ["💘"], 14); } },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "💘", text); },
   };
@@ -86,7 +91,7 @@ export function neverMode() {
   const N = ["fantasized about our next date 😏", "fallen asleep on call with you 🥱💕", "re-read our old texts 📱", "stared at your photo too long 👀", "wanted to kiss you through the screen 💋", "had a dream about you 😴💕", "gotten butterflies from one text 🦋", "wanted to skip everything just to see you ✈️", "undressed you with my eyes 😳😏", "rehearsed what I'd do when I see you 🫠"];
   let text = "";
   return {
-    action(a) { if (a === "next") { text = pick(N); net.send({ t: "never", text }); FX.flood(0, W, ["🙈", "💕"], 12); } },
+    action(a) { if (a === "next") { host.ai.ask({ user: "Complete ONE spicy 'Never have I ever…' confession for a couple (just the part after 'ever').", max: 40, temp: 1.05 }, () => pick(N)).then((t) => { text = (t || "").trim() || pick(N); net.send({ t: "never", text }); FX.flood(0, W, ["🙈", "💕"], 12); if (host.chat) host.chat.say("ai", "🙈 " + text); }); } },
     onNet(m) { if (m.t === "never") text = m.text; },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "24px system-ui"; ctx.textBaseline = "middle"; ctx.fillText("🙈 Never have I ever…", W / 2, H * 0.4); ctx.font = "bold 30px system-ui"; ctx.fillText(text || "press next", W / 2, H * 0.52); ctx.font = "17px system-ui"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.fillText("say 'I have' or 'I haven't' 😏", W / 2, H * 0.64); },
   };
