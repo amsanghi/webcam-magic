@@ -16,9 +16,10 @@ export function createChat({ voice, onSend }) {
   const $ = (id) => document.getElementById(id);
   const feed = $("chatFeed"), form = $("chatForm"), input = $("chatInput");
   const mic = $("micBtn"), tts = $("ttsBtn");
+  const askBar = $("askBar"), askLabel = $("askLabel"), askCancel = $("askCancel");
   let pending = null;               // {resolve}
   let listening = false, ttsOn = false, typingEl = null;
-  const DEFAULT_PH = "Message Cupid, or type your answer…";
+  const DEFAULT_PH = "Message Cupid, or answer…";
 
   const AVATAR = { ai: ICON.sparkles, partner: ICON.user };
 
@@ -42,7 +43,7 @@ export function createChat({ voice, onSend }) {
     return b;
   }
   function say(from, text) { if (text != null && text !== "") bubble(from, text); if (from === "ai") speak(text); }
-  function clear() { feed.innerHTML = ""; typingEl = null; }
+  function clear() { feed.innerHTML = ""; typingEl = null; if (pending) { const p = pending; endAsk(); p.resolve(null); } }
 
   // Cupid's animated "…" bubble while a reply is being generated.
   function thinking(on) {
@@ -56,12 +57,16 @@ export function createChat({ voice, onSend }) {
     } else if (typingEl) { typingEl.remove(); typingEl = null; }
   }
 
+  // A mode/host prompt. Shows a prominent "answer bar" above the input and
+  // highlights the field, so it's obvious you're answering (not chatting Cupid).
+  function endAsk() { pending = null; if (askBar) askBar.classList.add("hidden"); input.classList.remove("answering"); input.placeholder = DEFAULT_PH; }
   function ask(label, opts = {}) {
     return new Promise((resolve) => {
-      if (pending) pending.resolve(null);           // supersede any prior prompt
-      if (label) bubble("sys", label);
-      input.placeholder = opts.placeholder || label || DEFAULT_PH;
-      if (opts.value) input.value = opts.value;
+      if (pending) { const p = pending; pending = null; p.resolve(null); }   // supersede any prior prompt
+      if (askBar) { askLabel.textContent = label || "Your answer"; askBar.classList.remove("hidden"); }
+      input.classList.add("answering");
+      input.placeholder = opts.placeholder || "Type your answer…";
+      input.value = opts.value || "";
       input.focus();
       pending = { resolve };
     });
@@ -71,12 +76,13 @@ export function createChat({ voice, onSend }) {
     e.preventDefault();
     const v = input.value.trim();
     input.value = "";
-    if (pending) { const p = pending; pending = null; input.placeholder = DEFAULT_PH; if (v) bubble("you", v); p.resolve(v); return; }
+    if (pending) { const p = pending; endAsk(); if (v) bubble("you", v); p.resolve(v); return; }
     if (!v) return;
     bubble("you", v);
     onSend && onSend(v);
   });
-  input.addEventListener("keydown", (e) => { if (e.key === "Escape" && pending) { const p = pending; pending = null; input.value = ""; input.placeholder = DEFAULT_PH; p.resolve(null); } });
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape" && pending) { const p = pending; input.value = ""; endAsk(); p.resolve(null); } });
+  if (askCancel) askCancel.addEventListener("click", () => { if (pending) { const p = pending; input.value = ""; endAsk(); p.resolve(null); } });
 
   // voice-to-text into the input
   if (mic) {

@@ -48,10 +48,8 @@ export function twoTruthsMode() {
     },
     onNet(m) { if (m.t === "tt") { lines = m.lines; lie = m.lie; revealed = false; } else if (m.t === "tt-rev") revealed = true; },
     draw(ctx) {
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff";
       if (!lines.length) return big(ctx, "🕵️ Two Truths & a Lie", "press “enter” to write yours");
-      outline(ctx, "🕵️ Which one is the lie?", W / 2, H * 0.26, 26);
-      lines.forEach((l, i) => { ctx.font = "22px system-ui"; ctx.fillStyle = revealed && i === lie ? "#ff8a8a" : "#fff"; ctx.textBaseline = "middle"; ctx.fillText(`${i + 1}.  ${l.slice(0, 46)}${revealed && i === lie ? "   ← the lie" : ""}`, W / 2, H * 0.42 + i * 44); });
+      big(ctx, "🕵️ Which one is the lie?", lines.map((l, i) => `${i + 1}.  ${l.slice(0, 60)}${revealed && i === lie ? "   ← the lie" : ""}`).join("\n"));
       hint(ctx, revealed ? "revealed! “enter” for a new round" : "guess out loud, then “reveal”");
     },
   };
@@ -66,10 +64,8 @@ export function storyMode() {
     async action(a) { if (a === "add") { const v = await host.ask("Add the next sentence to your story:"); if (v) { lines.push(v.trim()); net.send({ t: "st-add", lines }); } } else if (a === "ai") { const s = await host.ai.ask({ system: "Continue this collaborative couple's story with ONE playful next sentence only.", user: lines.join(" ") || "Start a fun short story about a couple.", max: 40, temp: 1.05 }, () => "…and then something unexpected happened. ✨"); if (s) { lines.push(s.trim()); net.send({ t: "st-add", lines }); } } else if (a === "clear") { lines = []; net.send({ t: "st-add", lines }); } },
     onNet(m) { if (m.t === "st-add") lines = m.lines || []; },
     draw(ctx) {
-      ctx.textAlign = "center"; ctx.textBaseline = "middle"; outline(ctx, "📖 Our Story", W / 2, 60, 26);
-      if (!lines.length) { ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "20px system-ui"; ctx.fillText("take turns — “add” a sentence each ✍️", W / 2, H / 2); return; }
-      const show = lines.slice(-8); ctx.font = "20px system-ui";
-      show.forEach((l, i) => { ctx.fillStyle = (lines.length - show.length + i) % 2 ? "#ffd2e0" : "#cfe0ff"; ctx.fillText(l.slice(0, 72), W / 2, 108 + i * 40); });
+      if (!lines.length) return big(ctx, "📖 Our Story", "take turns — “add” a sentence each ✍️");
+      big(ctx, "📖 Our Story", lines.slice(-8).join("\n"));
       hint(ctx, "alternate turns • “add” a sentence to keep it going");
     },
   };
@@ -130,7 +126,7 @@ export function whoMoreMode() {
     draw(ctx) {
       ctx.textAlign = "center"; ctx.fillStyle = "#fff";
       if (phase === "idle") return big(ctx, "⚖️ Who's More Likely…", "press “go” • vote ☝️ you / ✌️ me");
-      if (phase === "count") { outline(ctx, "Who's more likely " + q, W / 2, H * 0.4, 26); pill(ctx, "vote ☝️you / ✌️me • " + Math.ceil(t), W / 2, H * 0.56, 16); return; }
+      if (phase === "count") return big(ctx, "Who's more likely " + q, "vote ☝️ you / ✌️ me • " + Math.ceil(t));
       const agree = mine !== theirs ? "you agree! 😄" : "you disagree — debate! 😆";  // opposite finger picks = same person
       big(ctx, "Who's more likely " + q, agree);
     },
@@ -154,7 +150,7 @@ export function thisOrThatMode() {
     draw(ctx) {
       ctx.textAlign = "center"; ctx.fillStyle = "#fff";
       if (!p) return big(ctx, "🔀 This or That", "press “go” • ☝️ left / ✌️ right");
-      if (phase === "count") { outline(ctx, `☝️ ${p[0]}   vs   ✌️ ${p[1]}`, W / 2, H * 0.42, 26); pill(ctx, "pick! • " + Math.ceil(t), W / 2, H * 0.56, 16); return; }
+      if (phase === "count") return big(ctx, `☝️ ${p[0]}  vs  ✌️ ${p[1]}`, "pick! • " + Math.ceil(t));
       const match = mine === theirs;
       big(ctx, match ? "match! 💕" : "opposites 😜", `you: ${mine === 1 ? p[0] : p[1]} • match streak ${streak}`);
     },

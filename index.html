@@ -4,13 +4,19 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Webcam Magic — gesture & face party for two</title>
-<link rel="stylesheet" href="./style.css?v=6" />
+<link rel="stylesheet" href="./style.css?v=7" />
 <!-- redeploy nudge: force a fresh GitHub Pages build -->
 </head>
 <body>
   <!-- hidden source videos -->
   <video id="localVideo" autoplay playsinline muted></video>
   <video id="remoteVideo" autoplay playsinline></video>
+
+  <!-- offscreen SVG filter used to sharpen the webcam feed (Sharp enhance level) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <filter id="wm-sharpen"><feConvolveMatrix order="3" preserveAlpha="true"
+      kernelMatrix="0 -0.35 0  -0.35 2.4 -0.35  0 -0.35 0" /></filter>
+  </defs></svg>
 
   <!-- STEP 1 — connect ----------------------------------------------------->
   <section id="lobby" class="screen">
@@ -20,11 +26,11 @@
         Runs entirely in your browser — no server, no recording, nothing leaves your devices.</p>
       <label class="field">
         <span>Secret room word <em>— you &amp; your partner type the same thing</em></span>
-        <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
+        <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" autocapitalize="off" spellcheck="false" />
       </label>
       <div class="row">
         <button id="joinBtn">Join call <i class="icon" data-ic="arrowRight"></i></button>
-        <button id="soloBtn" class="ghost-btn">Try solo</button>
+        <button id="soloBtn" class="ghost-btn">Explore solo</button>
       </div>
       <button id="copyLinkBtn" class="link-btn hidden"><i class="icon" data-ic="link"></i><span class="lbl">Copy invite link</span></button>
       <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
@@ -36,11 +42,11 @@
     <div class="menubar">
       <span class="pill status" id="connPill">solo</span>
       <span class="grow"></span>
-      <span class="pill" id="streak" title="hearts">💞 x0</span>
-      <span class="pill clickable" id="anniv" title="set your anniversary">💑 set date</span>
-      <button class="chip clickable" id="aiPill" title="On-device AI — click to load">✨ AI</button>
-      <button class="chip" id="copyLink2" title="Copy invite link"><i class="icon" data-ic="link"></i><span class="lbl">invite</span></button>
-      <button class="chip icon-btn" id="tuneBtn" title="Tuning" aria-label="Tuning"><i class="icon" data-ic="sliders"></i></button>
+      <span class="pill" id="streak" data-tip="hearts shared">💞 x0</span>
+      <span class="pill clickable" id="anniv" data-tip="Set your anniversary">💑 set date</span>
+      <button class="chip clickable" id="aiPill" data-tip="On-device AI — click to load">✨ AI</button>
+      <button class="chip" id="copyLink2" data-tip="Copy invite link"><i class="icon" data-ic="link"></i><span class="lbl">invite</span></button>
+      <button class="chip icon-btn" id="tuneBtn" data-tip="Tuning" aria-label="Tuning"><i class="icon" data-ic="sliders"></i></button>
     </div>
     <div class="menuhead">
       <h2>Pick something to do together</h2>
@@ -51,9 +57,10 @@
         <i class="icon" data-ic="search"></i>
         <input id="menuSearch" type="text" placeholder="Search modes…" autocomplete="off" />
       </div>
-      <button class="chip" id="surpriseBtn" title="Pick a random mode"><i class="icon" data-ic="shuffle"></i><span class="lbl">Surprise us</span></button>
+      <button class="chip" id="surpriseBtn" data-tip="Pick a random mode"><i class="icon" data-ic="shuffle"></i><span class="lbl">Surprise us</span></button>
     </div>
     <div id="menuGrid"></div>
+    <div id="menuEmpty" class="hidden"></div>
   </section>
 
   <!-- STEP 2.5 — guidelines ------------------------------------------------->
@@ -73,17 +80,18 @@
   <section id="play" class="screen hidden">
     <div id="playTop">
       <span class="pill status" id="connPill2">connected 💚</span>
-      <span class="pill" id="modePill">✨ Free</span>
+      <span class="pill mode-pill" id="modePill"><span class="mp-icon" data-ic="sparkles"></span><span class="mp-name">Free</span></span>
       <span class="grow"></span>
-      <button class="chip clickable" id="aiPill2" title="On-device AI — click to load">✨</button>
-      <button class="chip" id="menuBtn" title="Back to menu"><i class="icon" data-ic="grid"></i><span class="lbl">Menu</span></button>
-      <button class="chip" id="sizeBtn" title="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
-      <button class="chip icon-btn" id="fxBtn" title="Toggle effects" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
-      <button class="chip icon-btn" id="loveBtn2" title="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
-      <button class="chip icon-btn" id="confettiBtn2" title="Confetti" aria-label="Confetti"><i class="icon" data-ic="party"></i></button>
-      <button class="chip icon-btn" id="snapBtn" title="Snapshot" aria-label="Snapshot"><i class="icon" data-ic="camera"></i></button>
-      <button class="chip icon-btn" id="eyeBtn" title="Close your eyes to snap a photo (on)" aria-label="Eye-capture"><i class="icon" data-ic="eye"></i></button>
-      <button class="chip icon-btn danger" id="leaveBtn" title="Leave" aria-label="Leave"><i class="icon" data-ic="x"></i></button>
+      <button class="chip clickable" id="aiPill2" data-tip="On-device AI — click to load">✨</button>
+      <button class="chip" id="menuBtn" data-tip="Back to menu"><i class="icon" data-ic="grid"></i><span class="lbl">Menu</span></button>
+      <button class="chip" id="sizeBtn" data-tip="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
+      <button class="chip icon-btn" id="enhanceBtn" data-tip="Video look: Natural" aria-label="Video enhancement"><i class="icon" data-ic="enhance"></i></button>
+      <button class="chip icon-btn" id="fxBtn" data-tip="Effects on" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
+      <button class="chip icon-btn" id="loveBtn2" data-tip="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
+      <button class="chip icon-btn" id="confettiBtn2" data-tip="Confetti" aria-label="Confetti"><i class="icon" data-ic="party"></i></button>
+      <button class="chip icon-btn" id="snapBtn" data-tip="Snapshot" aria-label="Snapshot"><i class="icon" data-ic="camera"></i></button>
+      <button class="chip icon-btn" id="eyeBtn" data-tip="Close eyes to snap (on)" aria-label="Eye-capture"><i class="icon" data-ic="eye"></i></button>
+      <button class="chip icon-btn danger" id="leaveBtn" data-tip="Leave" aria-label="Leave"><i class="icon" data-ic="x"></i></button>
     </div>
     <div id="playBody">
       <aside id="chatDock">
@@ -93,14 +101,27 @@
         </div>
         <div id="actionbar" class="hidden"></div>
         <div id="chatFeed"></div>
+        <div id="askBar" class="hidden"><span id="askLabel"></span><button type="button" id="askCancel" class="icon-btn" data-tip="Cancel" data-tip-pos="top" aria-label="Cancel"><i class="icon" data-ic="x"></i></button></div>
         <form id="chatForm" autocomplete="off">
-          <button type="button" id="micBtn" class="icon-btn" title="Speak (voice input)" aria-label="Voice input"><i class="icon" data-ic="mic"></i></button>
-          <input id="chatInput" type="text" placeholder="Message Cupid, or type your answer…" />
-          <button type="button" id="ttsBtn" class="icon-btn" title="Read AI replies aloud" aria-label="Read replies aloud"><i class="icon" data-ic="volumeOff"></i></button>
-          <button type="submit" id="chatSend" title="Send" aria-label="Send"><i class="icon" data-ic="send"></i></button>
+          <button type="button" id="micBtn" class="icon-btn" data-tip="Voice input" data-tip-pos="top" aria-label="Voice input"><i class="icon" data-ic="mic"></i></button>
+          <input id="chatInput" type="text" placeholder="Message Cupid, or answer…" />
+          <button type="button" id="ttsBtn" class="icon-btn" data-tip="Read replies aloud" data-tip-pos="top" aria-label="Read replies aloud"><i class="icon" data-ic="volumeOff"></i></button>
+          <button type="submit" id="chatSend" data-tip="Send" data-tip-pos="top" aria-label="Send"><i class="icon" data-ic="send"></i></button>
         </form>
       </aside>
-      <div id="stage" data-size="l"><canvas id="canvas" width="1280" height="720"></canvas></div>
+      <div id="stageCol">
+        <div id="scoreBar" class="hidden">
+          <div class="sb-side"><span class="sb-name" id="sbName0">you</span><span class="sb-score" id="sbScore0">0</span></div>
+          <div class="sb-mid"><span class="sb-title" id="sbTitle"></span><span class="sb-time hidden" id="sbTime"></span></div>
+          <div class="sb-side"><span class="sb-name" id="sbName1">partner</span><span class="sb-score" id="sbScore1">0</span></div>
+        </div>
+        <div id="stage" data-size="l"><canvas id="canvas" width="1280" height="720"></canvas></div>
+        <div id="modeCaption" class="hidden">
+          <div class="cap-title" id="capTitle"></div>
+          <div class="cap-sub" id="capSub"></div>
+          <div class="cap-hint" id="capHint"></div>
+        </div>
+      </div>
     </div>
   </section>
 

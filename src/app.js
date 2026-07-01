@@ -12,6 +12,8 @@ import { createAudio } from "./core/audio.js";
 import { createAI } from "./core/ai.js";
 import { createChat } from "./core/chat.js";
 import { ICON, hydrateIcons } from "./core/icons.js";
+import { hudReset, hudState } from "./modes/ui.js";
+import { modeIcon } from "./core/modeIcons.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -37,6 +39,10 @@ let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, pl
 let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH screens, player 1 = right
 let soloFx = null;              // when set, Free play runs only this one feature
 let eyeCapOn = true; try { eyeCapOn = localStorage.getItem("wm_eyecap") !== "0"; } catch (_) {}   // default ON, remembered
+// 🎨 webcam look — a cheap canvas filter to make laptop cams pop (opt-out, remembered)
+const ENHANCE = { off: "none", natural: "contrast(1.06) saturate(1.12) brightness(1.03)", vivid: "contrast(1.14) saturate(1.3) brightness(1.05)", sharp: "url(#wm-sharpen) contrast(1.08) saturate(1.16) brightness(1.04)" };
+const ENH_ORDER = ["natural", "vivid", "sharp", "off"], ENH_LABEL = { off: "Off", natural: "Natural", vivid: "Vivid", sharp: "Sharp" };
+let enhanceLevel = "natural"; try { const v = localStorage.getItem("wm_enh"); if (v && ENHANCE[v]) enhanceLevel = v; } catch (_) {}
 let eyeClosedT = 0, eyeArmed = false, eyeReopen = -1, snapCount = 0;   // "close eyes to snap"
 let frame = 0, lastVideoTime = -1;
 let combo = 0;
@@ -365,7 +371,9 @@ function drawFeed(video, side, has) {
     ctx.translate(side * MID + MID, 0); ctx.scale(-1, 1);          // selfie-mirror BOTH halves
     const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
     const sc = Math.max(MID / vw, H / vh), dw = vw * sc, dh = vh * sc;
+    const filt = ENHANCE[enhanceLevel]; if (filt && filt !== "none") ctx.filter = filt;   // pop the webcam
     ctx.drawImage(video, (MID - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.filter = "none";
   } else {
     const cx = side * MID + MID / 2;
     const g = ctx.createLinearGradient(side * MID, 0, side * MID, H);
@@ -438,12 +446,47 @@ function loop() {
 
   FX.stepScreen(dt); FX.stepParticles(dt); FX.stepOverlays(dt);
   FX.drawScreen(ctx);
+  hudReset();                                          // modes populate the DOM HUD via big()/hint()/scoreboard()
   if (games.mode === "free") drawFreeOverlay(ctx); else games.draw(ctx);
   FX.drawParticles(ctx); FX.drawOverlays(ctx);
   drawCursors();
+  updateModeHud(hudState());                            // flush caption + score bar to the DOM
 }
 const _dummy = G.blankState();
 function nullDummy() { return _dummy; }
+
+// ---- DOM HUD: caption card (below video) + score bar (above) --------------
+// Modes call big()/hint()/scoreboard() (in modes/ui.js) which now write state
+// instead of painting the video; we mirror that state into real DOM here, diffed
+// so we only touch the DOM when the text actually changes.
+const modeHud = { title: "", sub: "", hint: "", score: "" };
+function clearModeHud() {
+  modeHud.title = modeHud.sub = modeHud.hint = modeHud.score = "";
+  ["capTitle", "capSub", "capHint"].forEach((id) => { const el = $(id); el.textContent = ""; el.classList.add("hidden"); });
+  $("modeCaption").classList.add("hidden"); $("scoreBar").classList.add("hidden");
+}
+function updateModeHud(s) {
+  const title = s ? s.title : "", sub = s ? s.sub : "", hint = s ? s.hint : "";
+  if (title !== modeHud.title) { const el = $("capTitle"); el.textContent = title; el.classList.toggle("hidden", !title); modeHud.title = title; }
+  if (sub !== modeHud.sub) { const el = $("capSub"); el.textContent = sub; el.classList.toggle("hidden", !sub); modeHud.sub = sub; }
+  if (hint !== modeHud.hint) { const el = $("capHint"); el.textContent = hint; el.classList.toggle("hidden", !hint); modeHud.hint = hint; }
+  $("modeCaption").classList.toggle("hidden", !(title || sub || hint));
+  const sc = s && s.score;
+  const timeStr = sc && sc.time != null ? Math.max(0, Math.ceil(sc.time)) + "s" : "";
+  const key = sc ? `${sc.title}|${sc.a}|${sc.b}|${timeStr}` : "";
+  if (key !== modeHud.score) {
+    modeHud.score = key;
+    $("scoreBar").classList.toggle("hidden", !sc);
+    if (sc) {
+      $("sbTitle").textContent = sc.title || "";
+      $("sbScore0").textContent = sc.a; $("sbScore1").textContent = sc.b;
+      const tm = $("sbTime"); tm.textContent = timeStr; tm.classList.toggle("hidden", !timeStr);
+      const mine = amInitiator ? 0 : 1;                 // authority (player 0) is on the left
+      $("sbName0").textContent = mine === 0 ? "you" : "partner";
+      $("sbName1").textContent = mine === 0 ? "partner" : "you";
+    }
+  }
+}
 
 // =====================================================================
 //  INIT + NETWORK (Trystero, reused pattern)
@@ -579,16 +622,18 @@ function enterPlay(mode) {
   if (mode.startsWith("fx:")) { soloFx = mode.slice(3); games.setMode("free"); }   // single Free feature
   else { soloFx = null; games.setMode(mode); }
   FX.clearParticles();
-  $("modePill").textContent = (MODE_INFO[mode] ? MODE_INFO[mode].ic + " " + MODE_INFO[mode].nm : mode);
+  const mi = MODE_INFO[mode];
+  const mp = $("modePill"); mp.querySelector(".mp-icon").innerHTML = modeIcon(mode, mi && mi.cat); mp.querySelector(".mp-name").textContent = mi ? mi.nm : mode;
   const bar = $("actionbar"); bar.innerHTML = "";
   (MODE_ACTIONS[mode] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
   bar.classList.toggle("hidden", !MODE_ACTIONS[mode]);
-  if (host.chat) { host.chat.clear(); const mi = MODE_INFO[mode]; if (mi) { host.chat.say("sys", mi.ic + " " + mi.nm); if (mi.how && mi.how[0]) host.chat.say("sys", mi.how[0]); } }
+  clearModeHud();                                         // fresh caption/score bar for the new mode
+  if (host.chat) { host.chat.clear(); if (mi) { host.chat.say("sys", mi.nm); if (mi.how && mi.how[0]) host.chat.say("sys", mi.how[0]); } }
   show("play");
 }
 function showReady(mode) {
-  const m = MODE_INFO[mode] || { ic: "✨", nm: mode, how: [] };
-  $("readyIcon").textContent = m.ic; $("readyName").textContent = m.nm;
+  const m = MODE_INFO[mode] || { ic: "✨", nm: mode, how: [], cat: "" };
+  $("readyIcon").innerHTML = modeIcon(mode, m.cat); $("readyName").textContent = m.nm;
   $("readyHow").innerHTML = m.how.map((h) => `<li>${h}</li>`).join("");
 }
 
@@ -601,7 +646,7 @@ function buildMenu() {
     for (const id in MODE_INFO) if (MODE_INFO[id].cat === cat) {
       const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode";
       card.dataset.nm = (m.nm + " " + cat).toLowerCase();
-      card.innerHTML = `<div class="ic">${m.ic}</div><div class="nm">${m.nm}</div>`;
+      card.innerHTML = `<div class="ic">${modeIcon(id, cat)}</div><div class="nm">${m.nm}</div>`;
       card.onclick = () => navTo("ready", id);
       grid.appendChild(card);
     }
@@ -611,12 +656,16 @@ function buildMenu() {
 // live search over the menu cards; also hides category titles that end up empty
 function filterMenu(q) {
   q = (q || "").trim().toLowerCase(); const grid = $("menuGrid");
-  grid.querySelectorAll(".card-mode").forEach((c) => c.classList.toggle("filtered", !!q && !(c.dataset.nm || "").includes(q)));
+  let shown = 0;
+  grid.querySelectorAll(".card-mode").forEach((c) => { const hide = !!q && !(c.dataset.nm || "").includes(q); c.classList.toggle("filtered", hide); if (!hide) shown++; });
   grid.querySelectorAll(".cat-title").forEach((t) => {
     let n = t.nextElementSibling, any = false;
     while (n && !n.classList.contains("cat-title")) { if (n.classList.contains("card-mode") && !n.classList.contains("filtered")) any = true; n = n.nextElementSibling; }
     t.classList.toggle("filtered", !any);
   });
+  const empty = $("menuEmpty");
+  if (q && shown === 0) { empty.textContent = `No modes match “${q}”. Try another word or press Surprise us.`; empty.classList.remove("hidden"); }
+  else empty.classList.add("hidden");
 }
 function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "free"); navTo("ready", ids[Math.floor(Math.random() * ids.length)]); }
 
@@ -706,11 +755,15 @@ $("readyStart").addEventListener("click", () => navTo("play", pendingMode));
 $("readyBack").addEventListener("click", () => navTo("menu"));
 // play screen controls
 $("menuBtn").addEventListener("click", () => navTo("menu"));
-$("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.currentTarget.classList.toggle("off", !fxOn); });
+$("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; const b = e.currentTarget; b.classList.toggle("off", !fxOn); b.dataset.tip = fxOn ? "Effects on" : "Effects off"; });
 $("snapBtn").addEventListener("click", () => host.snapshot("webcam-magic"));
-function reflectEye() { const b = $("eyeBtn"); b.classList.toggle("off", !eyeCapOn); const ic = b.querySelector(".icon"); if (ic) ic.innerHTML = eyeCapOn ? ICON.eye : ICON.eyeOff; b.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; }
+function reflectEye() { const b = $("eyeBtn"); b.classList.toggle("off", !eyeCapOn); const ic = b.querySelector(".icon"); if (ic) ic.innerHTML = eyeCapOn ? ICON.eye : ICON.eyeOff; b.dataset.tip = eyeCapOn ? "Close eyes to snap (on)" : "Eye-capture off"; }
 $("eyeBtn").addEventListener("click", () => { eyeCapOn = !eyeCapOn; try { localStorage.setItem("wm_eyecap", eyeCapOn ? "1" : "0"); } catch (_) {} reflectEye(); });
 reflectEye();
+// 🎨 webcam enhancement — cycle Natural → Vivid → Sharp → Off
+function reflectEnhance() { const b = $("enhanceBtn"); b.classList.toggle("off", enhanceLevel === "off"); b.dataset.tip = "Video look: " + ENH_LABEL[enhanceLevel]; }
+$("enhanceBtn").addEventListener("click", () => { enhanceLevel = ENH_ORDER[(ENH_ORDER.indexOf(enhanceLevel) + 1) % ENH_ORDER.length]; try { localStorage.setItem("wm_enh", enhanceLevel); } catch (_) {} reflectEnhance(); });
+reflectEnhance();
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("loveBtn2").addEventListener("click", sendSweet);
 $("confettiBtn2").addEventListener("click", fireConfetti);
