@@ -21,6 +21,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 AGENTS=(com.webcam-magic.ollama com.webcam-magic.proxy com.webcam-magic.ngrok com.webcam-magic.media)
 SD_PORT="${SD_PORT:-7860}"
 SD_LOG="/tmp/webcam-magic-sd.log"
+SD_REPO="${SD_REPO:-https://github.com/vladmandic/sdnext}"
+SD_DEFAULT_DIR="${SD_DEFAULT_DIR:-$HOME/sdnext}"
 
 # --- probes ----------------------------------------------------------------
 ollama_up() { curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; }
@@ -34,6 +36,48 @@ find_sd() {
   for d in "$HOME/sdnext" "$HOME/stable-diffusion-webui" "$HOME/forge" "$HERE/media/sdnext"; do
     [ -x "$d/webui.sh" ] && { echo "$d"; return; }
   done
+}
+
+# --- self-install: bring up anything that's missing (idempotent) -----------
+have() { command -v "$1" >/dev/null 2>&1; }
+brew_ensure() {   # brew_ensure <cmd> [formula]
+  have "$1" && return 0
+  if ! have brew; then echo "  ⚠ need Homebrew to install $1 (https://brew.sh)"; return 1; fi
+  echo "  ▶ installing ${2:-$1}…"; brew install "${2:-$1}" >/dev/null 2>&1 && echo "  ✅ $1" || { echo "  ⚠ couldn't install $1"; return 1; }
+}
+ollama_has() { ollama list 2>/dev/null | grep -q "$1"; }
+pull_model() { ollama_up || return 0; ollama_has "$1" && return 0; echo "  ▶ pulling $1 (one-time, several GB)…"; ollama pull "$1" >/dev/null 2>&1 && echo "  ✅ $1" || echo "  ⚠ couldn't pull $1"; }
+install_agent() {   # install_agent <label> <template-basename> [sed-expr]
+  local P="$HOME/Library/LaunchAgents/${1}.plist"
+  [ -f "$P" ] && return 0
+  mkdir -p "$HOME/Library/LaunchAgents"
+  if [ -n "${3:-}" ]; then sed "$3" "$HERE/$2" > "$P"; else cp "$HERE/$2" "$P"; fi
+  echo "  ✅ installed agent $1"
+}
+ensure_core() {
+  if ! have brew; then
+    echo "  ✗ Homebrew is required (the one thing I can't auto-install unattended)."
+    echo "    Install it once, then re-run ./wm.sh :"
+    echo "    /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    exit 1
+  fi
+  brew_ensure ollama; brew_ensure node; brew_ensure ngrok || true
+  install_agent com.webcam-magic.ollama com.webcam-magic.ollama.plist
+  install_agent com.webcam-magic.proxy  com.webcam-magic.proxy.plist "s#__PROXY_JS__#${HERE}/proxy.js#g"
+  if [ ! -f "$HOME/Library/LaunchAgents/com.webcam-magic.ngrok.plist" ] && [ -n "${NGROK_DOMAIN:-}" ]; then
+    [ -n "${NGROK_AUTHTOKEN:-}" ] && ngrok config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1 || true
+    install_agent com.webcam-magic.ngrok com.webcam-magic.ngrok.plist "s|__NGROK_DOMAIN__|${NGROK_DOMAIN}|g"
+  fi
+}
+ensure_media() {
+  [ -f "$HOME/Library/LaunchAgents/com.webcam-magic.media.plist" ] && return 0
+  [ -x "$HERE/media/setup-media.sh" ] && { echo "  ▶ setting up media (voice + image proxy)…"; ( cd "$HERE/media" && ./setup-media.sh ) || true; }
+}
+ensure_sd() {
+  [ -n "$(find_sd)" ] && return 0
+  have git || brew_ensure git
+  echo "  ▶ installing Stable Diffusion (SD.Next → $SD_DEFAULT_DIR, one-time)…"
+  git clone --depth 1 "$SD_REPO" "$SD_DEFAULT_DIR" >/dev/null 2>&1 && echo "  ✅ cloned SD.Next (its first launch installs deps + a default model)" || echo "  ⚠ couldn't clone SD — see server/media/README.md"
 }
 
 load_agents()   { for a in "${AGENTS[@]}"; do P="$HOME/Library/LaunchAgents/${a}.plist"; [ -f "$P" ] && launchctl load   "$P" 2>/dev/null || true; done; }
@@ -56,6 +100,7 @@ model_switch() {   # heavy|light via the "active" alias (site always requests "a
     *) return ;;
   esac
   ollama_up || return
+  pull_model "$active"          # heavy pulls the 26 GB model on demand — only when you ask for it
   ollama stop "$other" 2>/dev/null || true
   ollama rm active 2>/dev/null || true
   if ollama cp "$active" active 2>/dev/null; then
@@ -76,19 +121,31 @@ status() {
 }
 
 up() {
+  local model="${1:-light}"   # light is the default — keeps the Mac free; heavy is opt-in
+  if [ "${WM_NO_INSTALL:-}" != "1" ]; then
+    echo "▶ checking prerequisites — installing anything missing…"
+    ensure_core
+    ensure_media
+    ensure_sd
+    echo
+  fi
   echo "▶ bringing the whole stack up…"
   load_agents
   local ok=""; for _ in $(seq 1 20); do ollama_up && { ok=1; break; }; sleep 1; done
-  [ -z "$ok" ] && echo "  ⚠ Ollama didn't come up — run ./setup.sh once first (it installs the services)."
-  [ -n "$ok" ] && model_switch "${1:-light}"
+  if [ -n "$ok" ]; then
+    if [ "${WM_NO_INSTALL:-}" != "1" ]; then pull_model dolphin3:8b; pull_model llama3.2-vision:11b; fi   # light text + vision
+    model_switch "$model"
+  else
+    echo "  ⚠ Ollama still not up — check /tmp/webcam-magic-*.log"
+  fi
   start_sd
   sleep 2
   echo
   status
   echo
-  echo "✅ Up. Models load on first use, so the first message/photo is slow, then fast."
-  echo "   Nothing to re-run daily — the core services auto-start on boot."
-  echo "   Want images to auto-start too? run:  ./wm.sh autostart"
+  echo "✅ Up (model: $model). First use loads the model, so the first message/photo is slow, then fast."
+  echo "   Re-run anytime — it only installs what's missing (first-run installs can take a while)."
+  echo "   Make it fully hands-off (boots on its own):  ./wm.sh autostart"
 }
 
 down() {
