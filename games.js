@@ -912,6 +912,182 @@ export function createGames(net, host) {
     };
   }
 
+  // 😉 WINK DUEL — first to wink on GO
+  function winkBattleMode() {
+    let phase = "wait", t = 0, score = [0, 0], winner = -1, bc = 0;
+    const arm = () => { phase = "wait"; t = rnd(1.5, 4); winner = -1; };
+    return {
+      enter() { score = [0, 0]; arm(); },
+      onNet(m) { if (m.t === "wk") { phase = m.p; score = m.s; winner = m.w; } },
+      update(dt, local, remote) {
+        if (!authority) return; t -= dt;
+        if (phase === "wait" && t <= 0) { phase = "go"; t = 3; }
+        else if (phase === "go" && winner < 0) { if (local && local.face && local.face.wink) { winner = 0; score[0]++; } else if (remote && remote.face && remote.face.wink) { winner = 1; score[1]++; } if (winner >= 0) { phase = "done"; t = 2.5; FX.confetti(W / 2, H / 2, 20); FX.Sound.chime(); } else if (t <= 0) { phase = "done"; t = 2; } }
+        else if (phase === "done" && t <= 0) arm();
+        bc += dt; if (bc > .1) { bc = 0; net.send({ t: "wk", p: phase, s: score, w: winner }); }
+      },
+      draw(ctx) { scoreboard(ctx, score, null, "Wink Duel"); if (phase === "wait") big(ctx, "wait…", "get ready to 😉"); else if (phase === "go") big(ctx, "WINK! 😉", "now!"); else big(ctx, winner < 0 ? "nobody 😅" : (winner === meIdx() ? "You winked first 😉" : "Partner won 😉"), ""); },
+    };
+  }
+
+  // 🎭 CHARADES — one acts a prompt, the other guesses out loud
+  function charadesMode() {
+    const P = ["cat 🐱", "pizza 🍕", "swimming 🏊", "sleeping 😴", "playing guitar 🎸", "superhero 🦸", "dancing 💃", "fishing 🎣", "driving 🚗", "brushing teeth 🪥", "taking a selfie 🤳", "cooking 🍳", "crying 😭", "boxing 🥊", "an airplane ✈️", "a monkey 🐒", "a robot 🤖", "eating spaghetti 🍝"];
+    let isActor = false, word = "", revealed = false;
+    return {
+      enter() { isActor = false; word = ""; revealed = false; },
+      action(a) { if (a === "new") { isActor = true; word = pick(P); revealed = false; net.send({ t: "char-role" }); } else if (a === "reveal") { revealed = true; net.send({ t: "char-rev", w: word }); } },
+      onNet(m) { if (m.t === "char-role") { isActor = false; word = ""; revealed = false; } else if (m.t === "char-rev") { word = m.w; revealed = true; } },
+      draw(ctx) { if (isActor && !revealed) big(ctx, "Act out: " + word, "no talking — use gestures & face!"); else if (revealed) big(ctx, "it was: " + word + " 🎉", ""); else big(ctx, "🎭 Charades", "your partner is acting — guess out loud!"); hint(ctx, "“new prompt” to be the actor • “reveal” the answer"); },
+    };
+  }
+
+  // 🧊 FREEZE — hold perfectly still after FREEZE (uses hand motion)
+  function freezeMode() {
+    let phase = "idle", t = 0, score = [0, 0], out = { 0: false, 1: false }, bc = 0;
+    return {
+      enter() { score = [0, 0]; phase = "idle"; },
+      action(a) { if (a === "start" && phase === "idle") { phase = "get"; t = 2; out = { 0: false, 1: false }; } },
+      onNet(m) { if (m.t === "fz") { phase = m.p; score = m.s; t = m.tt; } },
+      update(dt, local, remote) {
+        if (!authority) return; if (phase !== "idle") t -= dt;
+        if (phase === "get" && t <= 0) { phase = "freeze"; t = 4; }
+        else if (phase === "freeze") { const chk = (g, s) => { if (!out[s] && g && g.handSpeed > 0.045) out[s] = true; }; chk(local, 0); chk(remote, 1); if (t <= 0) { for (let s = 0; s < 2; s++) if (!out[s]) score[s]++; phase = "done"; t = 2.5; } }
+        else if (phase === "done" && t <= 0) phase = "idle";
+        bc += dt; if (bc > .1) { bc = 0; net.send({ t: "fz", p: phase, s: score, tt: t }); }
+      },
+      draw(ctx) {
+        scoreboard(ctx, score, phase === "freeze" ? t : null, "Freeze — hold still");
+        if (phase === "idle") big(ctx, "🧊 Freeze", "press start, then DON'T move");
+        else if (phase === "get") big(ctx, "get ready… " + Math.ceil(Math.max(0, t)), "");
+        else if (phase === "freeze") { big(ctx, "FREEZE! 🧊", "don't move a muscle"); for (let s = 0; s < 2; s++) if (out[s]) { ctx.save(); ctx.font = "80px serif"; ctx.textAlign = "center"; ctx.fillText("❌", s * MID + MID / 2, H * 0.72); ctx.restore(); } }
+        else big(ctx, "⏱ time!", "still-standers score a point");
+      },
+    };
+  }
+
+  // 🥁 RHYTHM — clap on the beat (uses clap detection)
+  function rhythmMode() {
+    let since = 0, score = [0, 0], hit = { 0: false, 1: false }, prev = { 0: false, 1: false }, bc = 0;
+    const period = 1.0;
+    return {
+      enter() { score = [0, 0]; since = 0; },
+      onNet(m) { if (m.t === "ry") { score = m.s; since = m.sc; } },
+      update(dt, local, remote) {
+        if (!authority) return; since += dt; const ph = since % period;
+        if (ph < 0.03) hit = { 0: false, 1: false };
+        const inWin = ph < 0.28;
+        [[local, 0], [remote, 1]].forEach(([g, s]) => { const c = g && g.two && g.two.clap; if (c && !prev[s]) { if (inWin && !hit[s]) { score[s]++; hit[s] = true; FX.sparkleAt(s === 0 ? W * .25 : W * .75, H * .5, 8); FX.Sound.pop(); } } prev[s] = c; });
+        bc += dt; if (bc > .1) { bc = 0; net.send({ t: "ry", s: score, sc: +since.toFixed(2) }); }
+      },
+      draw(ctx) { const ph = since % period, pulse = ph < 0.28; ctx.save(); ctx.translate(W / 2, H / 2); ctx.fillStyle = pulse ? "rgba(124,255,157,.5)" : "rgba(255,255,255,.14)"; ctx.beginPath(); ctx.arc(0, 0, pulse ? 92 : 60, 0, 7); ctx.fill(); ctx.restore(); scoreboard(ctx, score, null, "Rhythm — 👏 clap when the circle pulses"); },
+    };
+  }
+
+  // 🙏 MAKE A WISH — both press palms together
+  function wishMode() {
+    let t = 0;
+    return {
+      update(dt, local, remote) { if (t > 0) { t -= dt; return; } const solo = !(remote && remote.present); const lp = local && local.two && local.two.prayer, rp = solo ? lp : (remote && remote.two && remote.two.prayer); if (lp && rp) { FX.travel({ x: 20, y: 40 }, () => ({ x: W - 20, y: H * 0.5 }), "🌠", () => FX.burst(W - 60, H * 0.5, ["✨", "⭐", "💫"], 14, 220)); FX.flood(0, W, ["✨", "💫"], 20); FX.banner(W / 2, H * 0.3, "wish made together 🌠"); FX.Sound.chime(); t = 4; } },
+      draw(ctx) { big(ctx, "🙏 Make a Wish", "both press your palms together"); },
+    };
+  }
+
+  // 🙌 HANDS UP — both raise hands to hype
+  function handsUpMode() {
+    let combo = 0, prev = false;
+    return {
+      update(dt, local, remote) { const solo = !(remote && remote.present); const l = local && local.two && local.two.handsUp, r = solo ? l : (remote && remote.two && remote.two.handsUp); const both = l && r; if (both && !prev) { combo++; FX.flood(0, W, ["🙌", "🎉", "✨", "🥳"], 40); FX.burst(W / 2, H / 2, ["🙌"], 16); FX.Sound.chime(); } prev = both; },
+      draw(ctx) { big(ctx, "🙌 Hands Up! " + (combo ? "×" + combo : ""), "both raise your hands to celebrate 🥳"); },
+    };
+  }
+
+  // 💞 36 QUESTIONS (Arthur Aron — "the ones that lead to love")
+  function q36Mode() {
+    const Q = ["Given the choice of anyone in the world, whom would you want as a dinner guest?", "Would you like to be famous? In what way?", "Before making a phone call, do you ever rehearse what you'll say? Why?", "What would constitute a “perfect” day for you?", "When did you last sing to yourself? To someone else?", "If you could live to 90 keeping the mind or body of a 30-year-old for the last 60 years — which?", "Do you have a secret hunch about how you'll die?", "Name three things you and I appear to have in common.", "For what in your life do you feel most grateful?", "If you could change anything about how you were raised, what would it be?", "Take 4 minutes to tell your partner your life story in as much detail as possible.", "If you could wake up tomorrow having gained one quality or ability, what would it be?", "If a crystal ball could tell you the truth about anything, what would you want to know?", "Is there something you've dreamt of doing for a long time? Why haven't you?", "What is the greatest accomplishment of your life?", "What do you value most in a friendship?", "What is your most treasured memory?", "What is your most terrible memory?", "If you knew you'd die in a year, would you change how you live? Why?", "What does friendship mean to you?", "What roles do love and affection play in your life?", "Alternate sharing something you consider a positive characteristic of your partner (5 total).", "How close and warm is your family? Was your childhood happier than others'?", "How do you feel about your relationship with your mother?", "Make three true “we” statements (e.g. “We are both in this room feeling…”).", "Complete this sentence: “I wish I had someone with whom I could share…”", "If you were to become close friends, what's important for them to know?", "Tell your partner what you like about them — be honest, say things you wouldn't to a stranger.", "Share an embarrassing moment in your life.", "When did you last cry in front of another person? By yourself?", "Tell your partner something you already like about them.", "What, if anything, is too serious to be joked about?", "If you died this evening with no chance to communicate, what would you most regret not telling someone?", "Your house is on fire. After loved ones & pets, you can save one item — what, and why?", "Of all the people in your family, whose death would you find most disturbing? Why?", "Share a personal problem and ask your partner how they'd handle it."];
+    let i = 0;
+    return {
+      onNet(m) { if (m.t === "q36") i = m.i; },
+      action(a) { if (a === "next") { i = Math.min(Q.length - 1, i + 1); net.send({ t: "q36", i }); } else if (a === "prev") { i = Math.max(0, i - 1); net.send({ t: "q36", i }); } },
+      draw(ctx) { const set = i < 12 ? "Set I" : i < 24 ? "Set II" : "Set III"; big(ctx, Q[i], `36 Questions • ${set} • ${i + 1}/36`); hint(ctx, "take turns answering honestly • ◀ ▶ to move • finish with 4 min of eye contact 👀"); },
+    };
+  }
+
+  // 💬 DEEP TALK — lighter connection prompts
+  function deepTalkMode() {
+    const Q = ["What made you smile today?", "What's a small thing I do that you love?", "Describe our perfect lazy Sunday.", "What are you most looking forward to about seeing me?", "What's a memory of us you replay often?", "If we could teleport anywhere right now, where?", "What's something new you want us to try together?", "What did you first find attractive about me?", "What song reminds you of me?", "What are you grateful for right now?", "How can I support you better this week?", "What's a dream you haven't told me yet?", "What would our ideal date night look like tonight?", "What's your favorite thing about us?", "What's a tiny win you had recently?", "What do you need more of from me?"];
+    let text = "press next 💬";
+    return {
+      onNet(m) { if (m.t === "dt") text = m.text; },
+      action(a) { if (a === "next") { text = pick(Q); net.send({ t: "dt", text }); FX.flood(0, W, ["💬", "💕"], 10); } },
+      draw(ctx) { big(ctx, "💬", text); hint(ctx, "“next” for a new question — take turns answering"); },
+    };
+  }
+
+  // 🙋 20 QUESTIONS — one thinks of something, the other asks yes/no
+  function twentyQMode() {
+    let count = 0, asker = 1;
+    return {
+      onNet(m) { if (m.t === "tq") { count = m.c; asker = m.a; } },
+      action(a) { if (a === "ask") { count = Math.min(20, count + 1); net.send({ t: "tq", c: count, a: asker }); } else if (a === "swap") { asker = asker ? 0 : 1; count = 0; net.send({ t: "tq", c: count, a: asker }); } else if (a === "reset") { count = 0; net.send({ t: "tq", c: count, a: asker }); } },
+      draw(ctx) { const iAsk = asker === meIdx(); big(ctx, count + " / 20", iAsk ? "you ask the yes/no questions" : "think of something — they'll guess!"); hint(ctx, "“asked” after each question • “swap” to switch roles"); },
+    };
+  }
+
+  // 🕵️ TWO TRUTHS & A LIE
+  function twoTruthsMode() {
+    let lines = [], lie = -1, revealed = false;
+    return {
+      enter() { lines = []; lie = -1; revealed = false; },
+      async action(a) {
+        if (a === "enter") { const v = await host.ask("Two truths and a lie — 3 lines, put your LIE on the LAST line:", { multiline: true }); if (v) { const L = v.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 3); if (L.length === 3) { const order = [0, 1, 2].sort(() => Math.random() - 0.5); lie = order.indexOf(2); lines = order.map((k) => L[k]); revealed = false; net.send({ t: "tt", lines, lie }); } } }
+        else if (a === "reveal") { revealed = true; net.send({ t: "tt-rev" }); }
+      },
+      onNet(m) { if (m.t === "tt") { lines = m.lines; lie = m.lie; revealed = false; } else if (m.t === "tt-rev") revealed = true; },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (!lines.length) return big(ctx, "🕵️ Two Truths & a Lie", "press “enter” to write yours");
+        outline(ctx, "🕵️ Which one is the lie?", W / 2, H * 0.26, 26);
+        lines.forEach((l, i) => { ctx.font = "22px system-ui"; ctx.fillStyle = revealed && i === lie ? "#ff8a8a" : "#fff"; ctx.textBaseline = "middle"; ctx.fillText(`${i + 1}.  ${l.slice(0, 46)}${revealed && i === lie ? "   ← the lie" : ""}`, W / 2, H * 0.42 + i * 44); });
+        hint(ctx, revealed ? "revealed! “enter” for a new round" : "guess out loud, then “reveal”");
+      },
+    };
+  }
+
+  // 📖 STORY BUILDER — alternate a sentence each
+  function storyMode() {
+    let lines = [];
+    return {
+      enter() { lines = []; },
+      async action(a) { if (a === "add") { const v = await host.ask("Add the next sentence to your story:"); if (v) { lines.push(v.trim()); net.send({ t: "st-add", lines }); } } else if (a === "clear") { lines = []; net.send({ t: "st-add", lines }); } },
+      onNet(m) { if (m.t === "st-add") lines = m.lines || []; },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.textBaseline = "middle"; outline(ctx, "📖 Our Story", W / 2, 60, 26);
+        if (!lines.length) { ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "20px system-ui"; ctx.fillText("take turns — “add” a sentence each ✍️", W / 2, H / 2); return; }
+        const show = lines.slice(-8); ctx.font = "20px system-ui";
+        show.forEach((l, i) => { ctx.fillStyle = (lines.length - show.length + i) % 2 ? "#ffd2e0" : "#cfe0ff"; ctx.fillText(l.slice(0, 72), W / 2, 108 + i * 40); });
+        hint(ctx, "alternate turns • “add” a sentence to keep it going");
+      },
+    };
+  }
+
+  // 🧠 TELEPATHY — both name the same thing in a category
+  function telepathyMode() {
+    const CATS = ["a fruit 🍓", "a color 🎨", "a movie 🎬", "a place to travel ✈️", "an animal 🐾", "a date idea 💕", "a pizza topping 🍕", "a song 🎵", "a number 1–10 🔢", "a weekend plan 🌤️"];
+    let cat = "", mine = "", theirs = "", phase = "idle";
+    const check = () => { if (mine && theirs) { phase = "reveal"; if (mine.toLowerCase() === theirs.toLowerCase()) { FX.flood(0, W, ["🎉", "💕", "✨"], 40); FX.Sound.chime(); } } };
+    const start = (c) => { cat = c; mine = ""; theirs = ""; phase = "answer"; };
+    return {
+      onNet(m) { if (m.t === "tele-go") start(m.c); else if (m.t === "tele-ans") { theirs = m.w; check(); } },
+      async action(a) { if (a === "go") { const c = pick(CATS); start(c); net.send({ t: "tele-go", c }); } else if (a === "answer") { if (phase !== "answer") return; const v = await host.ask("Think alike! Name " + cat + ":"); if (v) { mine = v.trim(); net.send({ t: "tele-ans", w: mine }); check(); } } },
+      draw(ctx) {
+        if (phase === "idle") return big(ctx, "🧠 Telepathy", "press “new”, then both name the same thing");
+        if (phase === "reveal") { const match = mine.toLowerCase() === theirs.toLowerCase(); big(ctx, `${mine || "?"}  •  ${theirs || "?"}`, match ? "🎉 telepathy! you matched" : "😜 not this time — “new” to retry"); }
+        else big(ctx, "Name: " + cat, mine ? "waiting for partner…" : "press “answer” to lock it in");
+      },
+    };
+  }
+
   // ---- shared UI helpers (consistent contrast, panels & alignment) --------
   function roundRect(ctx, x, y, w, h, r) {
     if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
@@ -958,7 +1134,9 @@ export function createGames(net, host) {
     oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode,
     scrapbook: scrapbookMode, bucket: bucketMode,
     loversdice: loversDiceMode, wyr: wyrMode, never: neverMode, dareroulette: dareRouletteMode,
-    target: targetTrackMode, simon: simonMode, balloon: balloonMode, reaction: reactionMode };
+    target: targetTrackMode, simon: simonMode, balloon: balloonMode, reaction: reactionMode,
+    winkbattle: winkBattleMode, charades: charadesMode, freeze: freezeMode, rhythm: rhythmMode, wish: wishMode, handsup: handsUpMode,
+    q36: q36Mode, deeptalk: deepTalkMode, twentyq: twentyQMode, twotruths: twoTruthsMode, story: storyMode, telepathy: telepathyMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();

@@ -15,15 +15,15 @@ const mir = (lm) => ({ x: 1 - lm.x, y: lm.y });           // raw -> display-norm
 
 export function blankState() {
   return {
-    present: false, wave: false, fingers: 0,
+    present: false, wave: false, fingers: 0, handSpeed: 0,
     poses: { point: false, fingerGuns: false, rockOn: false, peace: false,
-             thumbsUp: false, thumbsDown: false, ok: false, snap: false, fist: false, palm: false, pinky: false },
+             thumbsUp: false, thumbsDown: false, ok: false, snap: false, fist: false, palm: false, pinky: false, shaka: false },
     pinch: { active: false, x: 0, y: 0 },
     point: { active: false, x: 0, y: 0 },
     palm: null, hands: [],
-    two: { heart: false, frame: false, clap: false, cup: false, armsWide: false,
+    two: { heart: false, frame: false, clap: false, cup: false, armsWide: false, prayer: false, handsUp: false,
            spread: { active: false, dist: 0 }, twist: { active: false, angle: 0 }, circle: { active: false, x: 0, y: 0, r: 0 } },
-    face: { present: false, smile: 0, kiss: 0, brow: 0, frown: 0, blink: 0, tongue: 0, laugh: 0, zoned: false, headShake: false, nose: null, mouth: null },
+    face: { present: false, smile: 0, kiss: 0, brow: 0, frown: 0, blink: 0, tongue: 0, laugh: 0, wink: 0, mouthOpen: 0, tilt: 0, zoned: false, headShake: false, nod: false, nose: null, mouth: null },
   };
 }
 
@@ -50,6 +50,7 @@ function classifyHand(lm) {
   else if (snapD < TUNE.snap && f.index) pose = "snap";
   else if (f.thumb && cnt === 0) pose = (lm[4].y > w.y ? "thumbsDown" : "thumbsUp");
   else if (f.index && f.pinky && !f.middle && !f.ring) pose = "rockOn";
+  else if (f.thumb && f.pinky && !f.index && !f.middle && !f.ring) pose = "shaka";   // 🤙 call-me
   else if (f.pinky && !f.index && !f.middle && !f.ring) pose = "pinky";
   else if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) pose = "fingerGuns";
   else if (f.index && f.middle && !f.ring && !f.pinky) pose = "peace";
@@ -64,7 +65,7 @@ function classifyHand(lm) {
 }
 
 // module-level temporal state (local camera)
-let lastPalmX = null, zonedT = 0, noseHist = [];
+let lastPalmX = null, zonedT = 0, noseHist = [], noseYHist = [], lastPalmPt = null;
 
 export function classifyHands(landmarks, state) {
   const hands = (landmarks || []).map(classifyHand);
@@ -75,12 +76,17 @@ export function classifyHands(landmarks, state) {
   const P = state.poses;
   for (const k in P) P[k] = false;
   state.pinch.active = false; state.point.active = false; state.palm = null;
-  state.two.heart = state.two.frame = state.two.clap = state.two.cup = state.two.armsWide = false;
+  state.two.heart = state.two.frame = state.two.clap = state.two.cup = state.two.armsWide = state.two.prayer = state.two.handsUp = false;
   state.two.spread.active = state.two.twist.active = state.two.circle.active = false;
 
   // finger count (max extended fingers across hands) for "throw a number" games
   state.fingers = 0;
   for (const h of hands) { const n = h.f.thumb + h.f.index + h.f.middle + h.f.ring + h.f.pinky; if (n > state.fingers) state.fingers = n; }
+
+  // hand speed (per-frame palm movement) for freeze / rhythm games
+  const primPalm = hands[0] ? hands[0].palm : null;
+  state.handSpeed = (primPalm && lastPalmPt) ? Math.hypot(primPalm.x - lastPalmPt.x, primPalm.y - lastPalmPt.y) : 0;
+  lastPalmPt = primPalm;
 
   let palmHand = null;
   for (const h of hands) {
@@ -113,6 +119,10 @@ export function classifyHands(landmarks, state) {
     state.two.clap = a.pose === "palm" && b.pose === "palm" && D(a.palm, b.palm) < 0.18;
     // arms wide = two open palms held far apart (for "send a hug")
     state.two.armsWide = a.pose === "palm" && b.pose === "palm" && Math.abs(dx) > 0.55;
+    // prayer = two palms pressed together (close), fingers up
+    state.two.prayer = a.pose === "palm" && b.pose === "palm" && D(a.palm, b.palm) < 0.16;
+    // hands up = both hands raised high
+    state.two.handsUp = a.palm.y < 0.4 && b.palm.y < 0.4;
     // frame = both "L"/fingerGuns shapes, hands far apart diagonally
     state.two.frame = (a.f.index && b.f.index) && Math.abs(dx) > 0.25 && (a.pose === "fingerGuns" || b.pose === "fingerGuns" || (a.f.thumb && b.f.thumb));
     // cup = two palms near each other, low in frame
@@ -131,28 +141,29 @@ export function classifyHands(landmarks, state) {
 export function classifyFace(blendshapes, faceLandmarks, state, dt) {
   const F = state.face;
   const bs = blendshapes, lms = faceLandmarks;
-  if (!bs || !lms) { F.present = false; F.smile = F.kiss = F.brow = F.frown = F.blink = F.tongue = F.laugh = 0; F.mouth = F.nose = null; return state; }
+  if (!bs || !lms) { F.present = false; F.smile = F.kiss = F.brow = F.frown = F.blink = F.tongue = F.laugh = F.wink = F.mouthOpen = F.tilt = 0; F.headShake = F.nod = false; F.mouth = F.nose = null; return state; }
   F.present = true;
   const g = (n) => { const c = bs.categories.find((c) => c.categoryName === n); return c ? c.score : 0; };
   F.smile = (g("mouthSmileLeft") + g("mouthSmileRight")) / 2;
   F.kiss = g("mouthPucker");
   F.brow = Math.max(g("browInnerUp"), (g("browOuterUpLeft") + g("browOuterUpRight")) / 2);
   F.frown = (g("mouthFrownLeft") + g("mouthFrownRight")) / 2;
-  F.blink = Math.min(g("eyeBlinkLeft"), g("eyeBlinkRight"));   // both eyes
+  const bl = g("eyeBlinkLeft"), br = g("eyeBlinkRight");
+  F.blink = Math.min(bl, br);                                 // both eyes
+  F.wink = (Math.abs(bl - br) > 0.4 && Math.max(bl, br) > 0.5) ? 1 : 0;   // one eye only
   F.tongue = g("tongueOut");
   const jaw = g("jawOpen");
+  F.mouthOpen = jaw;
   F.laugh = (jaw > TUNE.laughJaw && F.smile > TUNE.laughSmile) ? 1 : 0;
   F.nose = mir(lms[1]);
   F.mouth = { x: 1 - (lms[13].x + lms[14].x) / 2, y: (lms[13].y + lms[14].y) / 2 };
+  // head tilt (roll): angle of the eye line (radians, ~0 level)
+  if (lms[33] && lms[263]) F.tilt = Math.atan2(lms[263].y - lms[33].y, lms[263].x - lms[33].x);
 
-  // head-shake: nose x oscillating quickly side to side
-  noseHist.push(F.nose.x); if (noseHist.length > 8) noseHist.shift();
-  let dirs = 0;
-  for (let i = 2; i < noseHist.length; i++) {
-    const a = noseHist[i] - noseHist[i - 1], b = noseHist[i - 1] - noseHist[i - 2];
-    if (a * b < 0 && Math.abs(a) > 0.012) dirs++;          // direction reversal with motion
-  }
-  F.headShake = dirs >= 3;
+  // head-shake (x oscillation) & nod (y oscillation)
+  const osc = (arr, v, thr) => { arr.push(v); if (arr.length > 8) arr.shift(); let d = 0; for (let i = 2; i < arr.length; i++) { const a = arr[i] - arr[i - 1], b = arr[i - 1] - arr[i - 2]; if (a * b < 0 && Math.abs(a) > thr) d++; } return d >= 3; };
+  F.headShake = osc(noseHist, F.nose.x, 0.012);
+  F.nod = osc(noseYHist, F.nose.y, 0.010);
 
   // zoned-out: low everything for a sustained while
   const flat = F.smile < 0.1 && F.brow < 0.1 && F.frown < 0.1 && jaw < 0.12 && !state.present;
@@ -161,4 +172,4 @@ export function classifyFace(blendshapes, faceLandmarks, state, dt) {
   return state;
 }
 
-export function resetTemporal() { lastPalmX = null; zonedT = 0; noseHist = []; }
+export function resetTemporal() { lastPalmX = null; zonedT = 0; noseHist = []; noseYHist = []; lastPalmPt = null; }
