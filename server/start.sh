@@ -17,7 +17,7 @@ esac
 # bring the server back up if it was stopped (reload the login services)
 if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   echo "▶ Server not up — starting it…"
-  for agent in com.webcam-magic.ollama com.webcam-magic.ngrok; do
+  for agent in com.webcam-magic.ollama com.webcam-magic.proxy com.webcam-magic.ngrok; do
     P="$HOME/Library/LaunchAgents/${agent}.plist"; [ -f "$P" ] && launchctl load "$P" 2>/dev/null || true
   done
   for i in $(seq 1 20); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done

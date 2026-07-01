@@ -9,13 +9,14 @@ echo "▶ Stopping the home AI server…"
 for m in active dolphin-mixtral:8x7b dolphin3:8b; do ollama stop "$m" 2>/dev/null || true; done
 
 # take down the tunnel + Ollama login services (this session)
-for agent in com.webcam-magic.ngrok com.webcam-magic.ollama; do
+for agent in com.webcam-magic.ngrok com.webcam-magic.proxy com.webcam-magic.ollama; do
   P="$HOME/Library/LaunchAgents/${agent}.plist"
   [ -f "$P" ] && launchctl unload "$P" 2>/dev/null || true
 done
 
 # belt-and-suspenders in case anything was started by hand
-pkill -f "ngrok http 11434" 2>/dev/null || true
+pkill -f "ngrok http" 2>/dev/null || true
+pkill -f "server/proxy.js" 2>/dev/null || true
 
 echo "✅ Stopped: tunnel down, models unloaded, RAM freed."
 echo "   The site now falls back to on-device / static automatically."

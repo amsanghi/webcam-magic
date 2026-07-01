@@ -69,7 +69,7 @@ back up (it also returns on its own after a reboot).
 
 ## Troubleshooting
 - **Pill stays off/light:** the tunnel domain isn't reachable (is ngrok running? `tail -f /tmp/webcam-magic-ngrok.log`) or the URL wasn't set. Re-open the `?ai=` link.
-- **`curl` to the tunnel works but the site can't reach it (HTTP 403):** Ollama rejects requests whose `Host` header isn't localhost (anti-DNS-rebinding). The tunnel must **rewrite the Host header** — this repo's ngrok LaunchAgent runs with `--host-header=rewrite`. If you start ngrok by hand, use: `ngrok http --url=https://YOUR-DOMAIN --host-header=rewrite 11434`.
+- **`curl` to the tunnel works but the site can't reach it (403 / CORS preflight):** browser fetches through free ngrok need the `ngrok-skip-browser-warning` header, but Ollama's fixed CORS allow-list rejects that header on preflight, and Ollama also 403s any non-localhost `Host`. That's what `proxy.js` (`:11435`) solves — it answers the preflight permissively and rewrites the Host. **ngrok must point at the proxy (11435), not Ollama (11434)** — `setup.sh` wires this. Chain: browser → ngrok → proxy `:11435` → Ollama `:11434`. If the pill won't connect, check the proxy: `curl -s localhost:11435/api/tags` and `tail /tmp/webcam-magic-proxy.log`.
 - **First message slow after a switch:** normal — Ollama is loading the new model; subsequent ones are fast.
 - **CORS error:** the Ollama LaunchAgent sets `OLLAMA_ORIGINS` to the site origin — keep it if you fork the site.
 - **Restart everything:** `launchctl unload ~/Library/LaunchAgents/com.webcam-magic.{ollama,ngrok}.plist && launchctl load ~/Library/LaunchAgents/com.webcam-magic.{ollama,ngrok}.plist`

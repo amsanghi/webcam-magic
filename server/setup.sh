@@ -23,6 +23,12 @@ cp com.webcam-magic.ollama.plist "$OPLIST"
 launchctl unload "$OPLIST" 2>/dev/null || true; launchctl load "$OPLIST"
 for i in $(seq 1 15); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
 
+# CORS/Host-rewrite proxy in front of Ollama on :11435 (ngrok points here). Needed
+# so browser fetches through ngrok work — see proxy.js. Runs as a login service.
+PPLIST="$HOME/Library/LaunchAgents/com.webcam-magic.proxy.plist"
+sed "s#__PROXY_JS__#$(pwd)/proxy.js#g" com.webcam-magic.proxy.plist > "$PPLIST"
+launchctl unload "$PPLIST" 2>/dev/null || true; launchctl load "$PPLIST"
+
 echo "▶ Pulling models (several GB, one time)…"
 ollama pull dolphin-mixtral:8x7b   # heavy: best, fully uncensored (~26GB)
 ollama pull dolphin3:8b            # light: fast, uncensored — use when you're also on the Mac
