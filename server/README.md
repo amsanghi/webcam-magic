@@ -1,7 +1,7 @@
 # Home AI server (Tier 3)
 
 Run a strong AI model on your Mac and let the website call it — from either of your
-laptops **or phones, anywhere in the world.** It sits at the **top of the ladder**:
+laptops **or phones, anywhere.** It sits at the **top of the ladder**:
 
 ```
 Tier 3  home server (this)      ← best: big model on your Mac, shared to both of you
@@ -10,67 +10,62 @@ Tier 1  light in-browser        ← phones/Safari run a tiny model
 Tier 0  static decks            ← always works, offline
 ```
 
-The site auto-degrades: if the server is reachable it's used; if not, it falls to whoever
-has the more capable device; then a light model; then hand-written content.
+The site auto-degrades: server if reachable → stronger device → light model → static decks.
 
-## What it can do
-- **Text** + **image understanding (vision)** out of the box via **Ollama** (OpenAI-compatible API).
-- **Audio (speech-to-text)** and **image generation** as optional add-ons (below).
-- Real-time **video generation** isn't practical on a laptop; video *understanding* works by
-  sending frames to the vision model.
+## The idea: one fixed URL, swappable capability
+- A **permanent ngrok tunnel** on your static domain → the URL **never changes**.
+- Ollama serves an alias called **`active`**; the website always requests `active`.
+- **`./start.sh heavy|light`** just re-points `active` to a different model (and frees the other).
+- So you dial capability up/down anytime **without touching the website, the URL, or any device.**
+
+Two models are installed:
+| Command | Model | When |
+|---|---|---|
+| `./start.sh heavy` | `dolphin-mixtral:8x7b` — best, fully uncensored (~26 GB) | Mac idle / you're on your phone |
+| `./start.sh light`  | `dolphin3:8b` — fast, uncensored, frees ~26 GB | You want to actually use the Mac |
+
+Both are uncensored; the app's refusal-retry + static fallback mean you never see "I cannot…".
 
 ## 1. One-time setup
+Grab a free **static domain** and your **authtoken** at <https://dashboard.ngrok.com>, then:
 ```bash
 cd server
-./setup.sh
+NGROK_DOMAIN=yourname.ngrok-free.app NGROK_AUTHTOKEN=your_token ./setup.sh
 ```
-This installs Ollama, registers it as a **login service** (always running, auto-starts on boot,
-with CORS allowed for the site), and pulls the models:
-- `hermes3:8b` — strong, steerable, low-refusal text model (the default).
-- `llama3.2-vision:11b` — image understanding.
-- For a **fully uncensored** text model: `ollama pull dolphin3:8b` then use it (see step 3).
+This installs Ollama + ngrok, runs **both** as always-on login services (auto-start on boot, CORS
+allowed for the site, permanent tunnel), pulls both models + a vision model, and sets `active` to
+the heavy model. (Run without the env vars to install everything except the tunnel, then re-run with
+them once you have a domain.)
 
-M1 Max / 32 GB handles 8–11B models comfortably. Want bigger? `ollama pull qwen2.5:14b`.
+## 2. Point each device — once
+The URL is fixed, so do this a single time per device (it's saved + auto-shared to your partner on a call):
+- **Link (easiest, works on phones):** `https://amsanghi.github.io/webcam-magic/?ai=https://yourname.ngrok-free.app&aimodel=active`
+- **Tap the ✨ AI pill** → paste `https://yourname.ngrok-free.app` → Use server.
+- **Desktop console:** `wmAI.configure("https://yourname.ngrok-free.app", "active")`
 
-## 2. Expose it over https
-GitHub Pages is https, so the server needs an https URL. Pick one (no port-forwarding, no work Tailscale):
+The pill shows **AI on (server)**. Done forever — you never change this again.
 
+## 3. Switch capability whenever
 ```bash
-./start.sh            # Cloudflare quick tunnel — no account, prints an https URL (changes each run)
-./start.sh --ngrok    # ngrok — set NGROK_DOMAIN=you.ngrok-free.app for a PERMANENT stable URL (free)
+./start.sh heavy    # → dolphin-mixtral:8x7b   (best)
+./start.sh light    # → dolphin3:8b            (frees the Mac; unloads the heavy one)
 ```
-- **Cloudflare (default):** easiest, zero account. The URL (`https://…trycloudflare.com`) is new each run.
-- **ngrok (permanent):** free account → one static domain. `ngrok config add-authtoken <token>` once, then
-  `NGROK_DOMAIN=yourname.ngrok-free.app ./start.sh --ngrok` gives the **same URL every time**.
-
-Leave the tunnel running while you use the app.
-
-## 3. Point the site at it
-Pick whichever is easier — the URL is saved and **auto-shared to your partner over the call**, so only one of you sets it:
-
-- **On a phone (or anywhere) — tap the ✨ AI pill** (top bar) → paste the URL into "Home-server URL" → **Use server**. No console needed.
-- **A link (zero typing):** open the site with the URL baked in — great to text to yourself/her:
-  `https://amsanghi.github.io/webcam-magic/?ai=https://your-url-from-step-2`  (add `&aimodel=dolphin3:8b` to pick a model)
-- **Desktop console:** `wmAI.configure("https://your-url-from-step-2")` (optional 2nd arg = model).
-
-The **✨ AI** pill flips to **"AI on (server)"**. Done — both of you now use your Mac's model.
+Takes a couple of seconds; the next message uses the new model. Nothing on the website changes.
 
 ## Optional add-ons
-- **Speech-to-text (Whisper):** `brew install whisper-cpp` or run a small `faster-whisper` server; the
-  app's voice input already works in Chrome via the browser, this is for offline/Safari-quality STT.
-- **Image generation (Stable Diffusion):** run **ComfyUI** or **AUTOMATIC1111** (exposes an API on
-  another port); tunnel that port too and add a mode that posts to it. Heavy but fine on M1 Max for stills.
+- **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.
+- **Image generation (Stable Diffusion):** run ComfyUI / AUTOMATIC1111, tunnel its port, add a mode.
+- **Max-quality text (uncensored):** an abliterated ~32B, e.g.
+  `ollama pull hf.co/huihui-ai/Qwen2.5-32B-Instruct-abliterated-GGUF:Q4_K_M` (~20 GB; confirm the exact
+  tag on huggingface.co), then `ollama cp <that-model> active`.
 
 ## Security note
-- **Cloudflare/ngrok tunnels are public** — anyone with the URL can hit your Ollama (no auth by default).
-  The URLs are long/unguessable; for a couple app that's usually fine. Don't post the URL publicly.
-- Want it private? Put a simple auth proxy in front, or use a VPN you control. (Avoid your **work**
-  Tailscale — its ACLs/visibility aren't yours to mix with this.)
+- The ngrok tunnel is **public** — anyone with the URL can hit your Ollama (no auth by default). The
+  domain is unguessable-ish; don't post it publicly. For real privacy, front it with an auth proxy.
+- Uses **your own** ngrok account — nothing to do with your work Tailscale.
 
 ## Troubleshooting
-- **Pill stays "off/light":** the tunnel URL isn't reachable or `wmAI.configure` wasn't run. Re-copy the URL.
-- **CORS error in console:** the LaunchAgent sets `OLLAMA_ORIGINS` to the site origin; if you serve the
-  site elsewhere, add that origin (edit `com.webcam-magic.ollama.plist`, reload the agent).
-- **Model refuses explicit content:** switch to `dolphin3:8b` (uncensored) via `wmAI.configure(url, "dolphin3:8b")`.
-  The app also auto-retries tamer and falls back, so you never see a bare refusal.
-- **Restart Ollama:** `launchctl unload ~/Library/LaunchAgents/com.webcam-magic.ollama.plist && launchctl load ~/Library/LaunchAgents/com.webcam-magic.ollama.plist`
+- **Pill stays off/light:** the tunnel domain isn't reachable (is ngrok running? `tail -f /tmp/webcam-magic-ngrok.log`) or the URL wasn't set. Re-open the `?ai=` link.
+- **First message slow after a switch:** normal — Ollama is loading the new model; subsequent ones are fast.
+- **CORS error:** the Ollama LaunchAgent sets `OLLAMA_ORIGINS` to the site origin — keep it if you fork the site.
+- **Restart everything:** `launchctl unload ~/Library/LaunchAgents/com.webcam-magic.{ollama,ngrok}.plist && launchctl load ~/Library/LaunchAgents/com.webcam-magic.{ollama,ngrok}.plist`

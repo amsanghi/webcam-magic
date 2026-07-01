@@ -12,7 +12,7 @@
 const OVERRIDE_KEY = "wm_ai_tier";          // "auto" | "0" | "1" | "2"
 const SERVER_KEY = "wm_ai_server";          // e.g. https://xyz.trycloudflare.com
 const SERVER_MODEL_KEY = "wm_ai_server_model";
-const DEFAULT_SERVER_MODEL = "qwen2.5:7b";
+const DEFAULT_SERVER_MODEL = "active";   // an Ollama alias the server re-points (see server/start.sh)
 
 export function getOverride() { try { return localStorage.getItem(OVERRIDE_KEY) || "auto"; } catch (_) { return "auto"; } }
 export function setOverride(v) { try { localStorage.setItem(OVERRIDE_KEY, v); } catch (_) {} }
