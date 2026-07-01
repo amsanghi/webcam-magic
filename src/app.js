@@ -59,6 +59,7 @@ let localG = G.blankState(), remoteG = G.blankState();
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
 const host = createHost(canvas, localVideo);
+host.localVideo = localVideo; host.remoteVideo = remoteVideo;   // raw feeds for modes that composite video (Cuddle Cam)
 const games = createGames(net, host);
 const { stepObjects, stepPose, stepSeg } = createDetectors(host, localVideo);
 const audio = createAudio(host, () => games.mode === "free" && fxOn);

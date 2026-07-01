@@ -195,6 +195,113 @@ export function loveTapMode() {
   };
 }
 
+
+// 🛋️ CUDDLE CAM — cut both of you out of your backgrounds and drop you into ONE
+// shared scene, live, so it feels like you're sitting together. Runs the selfie
+// segmenter on BOTH feeds in-browser (no server); throttled + alternating sides so
+// it stays smooth. Each client segments its own camera + the incoming remote video.
+// v1 — perceptual quality (edges, framing) is meant to be tuned on real devices.
+export function cuddleCamMode() {
+  const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+  const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+  const SCENES = ["cozy", "sunset", "night", "meadow"];
+  const SW = 256, SH = 144;
+  let seg = null, loading = false, failed = false;
+  let cutL = null, cutR = null, lastSeg = 0, which = 0, sceneIdx = 0;
+  const work = document.createElement("canvas"); work.width = SW; work.height = SH;
+  const wcx = work.getContext("2d", { willReadFrequently: true });
+
+  async function ensureSeg() {
+    if (seg || loading || failed) return;
+    loading = true;
+    try {
+      const mod = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs");
+      const fileset = await mod.FilesetResolver.forVisionTasks(WASM);
+      seg = await mod.ImageSegmenter.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: SEG_MODEL, delegate: "GPU" },
+        runningMode: "IMAGE", outputCategoryMask: true, outputConfidenceMasks: false,
+      });
+    } catch (_) { failed = true; }
+    loading = false;
+  }
+  // cut the person out of one video frame → an SW×SH canvas (person opaque, rest clear)
+  function makeCut(video) {
+    if (!seg || !video || video.readyState < 2 || !video.videoWidth) return null;
+    const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(SW / vw, SH / vh), dw = vw * s, dh = vh * s;
+    wcx.clearRect(0, 0, SW, SH);
+    wcx.drawImage(video, (SW - dw) / 2, (SH - dh) / 2, dw, dh);   // cover, unmirrored so it aligns with the mask
+    let res; try { res = seg.segment(work); } catch (_) { return null; }
+    const mask = res && res.categoryMask; if (!mask) return null;
+    let arr; try { arr = mask.getAsUint8Array(); } catch (_) { try { mask.close(); } catch (_) {} return null; }
+    const mw = mask.width, mh = mask.height;
+    const img = wcx.getImageData(0, 0, SW, SH), px = img.data;
+    let person = 0;
+    for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+      const mx = mw === SW ? x : Math.min(mw - 1, (x * mw / SW) | 0), my = mh === SH ? y : Math.min(mh - 1, (y * mh / SH) | 0);
+      if (arr[my * mw + mx] !== 0) person++; else px[(y * SW + x) * 4 + 3] = 0;   // clear the background
+    }
+    try { mask.close(); } catch (_) {}
+    if (person < SW * SH * 0.02) return null;                    // essentially nobody → keep the previous cut
+    const out = document.createElement("canvas"); out.width = SW; out.height = SH;
+    out.getContext("2d").putImageData(img, 0, 0);
+    return out;
+  }
+  function drawScene(ctx, name) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    if (name === "sunset") {
+      g.addColorStop(0, "#ff9a6b"); g.addColorStop(.5, "#ff6f91"); g.addColorStop(1, "#7a4a8a"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(255,240,200,.9)"; ctx.beginPath(); ctx.arc(W / 2, H * 0.66, 90, 0, 7); ctx.fill();
+    } else if (name === "night") {
+      g.addColorStop(0, "#0b1030"); g.addColorStop(1, "#1b2450"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#fff"; for (let i = 0; i < 70; i++) { ctx.globalAlpha = .25 + .55 * ((i * 53) % 10) / 10; ctx.fillRect((i * 137) % W, (i * 79) % (H * 0.7), 2, 2); } ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(240,240,255,.95)"; ctx.beginPath(); ctx.arc(W * 0.8, H * 0.2, 46, 0, 7); ctx.fill();
+    } else if (name === "meadow") {
+      g.addColorStop(0, "#9bd6ff"); g.addColorStop(.5, "#cdeeff"); g.addColorStop(.5, "#7ec850"); g.addColorStop(1, "#4f9e3a"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(255,244,180,.95)"; ctx.beginPath(); ctx.arc(W * 0.18, H * 0.2, 42, 0, 7); ctx.fill();
+    } else {   // cozy
+      g.addColorStop(0, "#3a2233"); g.addColorStop(1, "#160e1c"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(255,200,120,.55)"; for (let i = 0; i < 12; i++) ctx.fillRect(60 + i * (W - 120) / 11, 46 + (i % 2) * 10, 6, 6);
+    }
+  }
+  return {
+    enter() { ensureSeg(); cutL = cutR = null; which = 0; },
+    exit() { try { seg && seg.close(); } catch (_) {} seg = null; loading = false; failed = false; cutL = cutR = null; },
+    action(a) { if (a === "scene") sceneIdx = (sceneIdx + 1) % SCENES.length; },
+    update(dt, local, remote) {
+      if (!seg) return;
+      const now = performance.now();
+      if (now - lastSeg < 130) return;                            // ~7–8 fps total, alternating sides
+      lastSeg = now;
+      if (which === 0) { const c = makeCut(host.localVideo); if (c) cutL = c; which = 1; }
+      else { const rv = host.remoteVideo; if (rv && rv.videoWidth) { const c = makeCut(rv); if (c) cutR = c; } else cutR = null; which = 0; }
+      // little sparkles when you meet in the middle
+      if (local && remote && local.face && remote.face) {
+        if (local.face.kiss > 0.4 && remote.face.kiss > 0.4) FX.burst(W / 2, H * 0.42, ["💋", "❤️"], 8, 200);
+        if (local.two && remote.two && local.two.heart && remote.two.heart) FX.flood(0, W, ["❤️", "💖"], 16);
+      }
+    },
+    draw(ctx) {
+      drawScene(ctx, SCENES[sceneIdx]);
+      const solo = !cutR;
+      const place = (cut, dx, dw) => {
+        if (!cut) return; const dh = dw * cut.height / cut.width, y = H - dh;
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 12;
+        ctx.translate(dx + dw, y); ctx.scale(-1, 1); ctx.drawImage(cut, 0, 0, dw, dh); ctx.restore();   // selfie-mirror each cutout
+      };
+      if (solo) { place(cutL, W * 0.2, W * 0.6); }
+      else {
+        place(cutR, 0, W * 0.72); place(cutL, W * 0.28, W * 0.72);
+        const gr = ctx.createRadialGradient(W / 2, H * 0.62, 8, W / 2, H * 0.62, 240);
+        gr.addColorStop(0, "rgba(255,150,180,.22)"); gr.addColorStop(1, "rgba(255,150,180,0)");
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+      }
+      if (!seg) big(ctx, "🛋️ Cuddle Cam", loading ? "getting the magic ready…" : failed ? "couldn't load the segmenter — needs WebGPU" : "starting…");
+      else if (solo) big(ctx, "🛋️ Cuddle Cam", "waiting for your partner to cuddle up 💕");
+      hint(ctx, "Cuddle Cam — you two share one scene ✨ • “scene” changes the backdrop • lean into the middle!");
+    },
+  };
+}
+
 export const modes = {
   "kisscam": { cat: "Couple", ic: "💋", nm: "Kiss Cam", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"], actions: [["start", "💋 start"]], make: kissCamMode },
   "mashup": { cat: "Couple", ic: "💞", nm: "Name Mash", how: ["Enter both your names", "Get your couple name"], actions: [["go", "💞 mash"]], make: mashupMode },
@@ -207,4 +314,5 @@ export const modes = {
   "wish": { cat: "Couple", ic: "🙏", nm: "Make a Wish", how: ["Both press your palms together 🙏", "A shooting star grants your shared wish"], make: wishMode },
   "handsup": { cat: "Couple", ic: "🙌", nm: "Hands Up!", how: ["Both raise your hands at the same time", "Hype counter goes up with confetti 🥳"], make: handsUpMode },
   "lovetap": { cat: "Couple", ic: "💓", nm: "Love Tap", how: ["Press send to buzz your partner's phone 📳", "A little haptic “thinking of you”"], actions: [["tap", "💓 send"]], make: loveTapMode },
+  "cuddlecam": { cat: "Couple", ic: "🛋️", nm: "Cuddle Cam", how: ["Both of you get cut out and dropped into ONE shared scene — like you're sitting together", "“scene” changes the backdrop • lean toward the middle to snuggle", "Needs WebGPU; runs the segmenter on both feeds (no server)"], actions: [["scene", "🖼 scene"]], make: cuddleCamMode },
 };
