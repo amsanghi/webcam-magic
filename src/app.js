@@ -1,15 +1,14 @@
 // app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
 // couple cross-feed effects, mode/game switching, and Trystero networking.
-import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, ImageSegmenter, FilesetResolver }
+import { HandLandmarker, FaceLandmarker, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
-import * as FX from "./effects.js";
-import * as G from "./gestures.js";
-import { createGames } from "./games.js";
-import { createVoice } from "./voice.js";
-const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
-const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
-const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
-
+import * as FX from "./fx/effects.js";
+import * as G from "./perception/gestures.js";
+import { createGames, MODE_INFO, MODE_ACTIONS, CAT_ORDER } from "./modes/registry.js";
+import { createVoice } from "./perception/voice.js";
+import { createHost } from "./core/host.js";
+import { createDetectors } from "./core/detectors.js";
+import { createAudio } from "./core/audio.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -35,7 +34,7 @@ let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH sc
 let soloFx = null;              // when set, Free play runs only this one feature
 let eyeCapOn = true; try { eyeCapOn = localStorage.getItem("wm_eyecap") !== "0"; } catch (_) {}   // default ON, remembered
 let eyeClosedT = 0, eyeArmed = false, eyeReopen = -1, snapCount = 0;   // "close eyes to snap"
-let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
+let frame = 0, lastVideoTime = -1;
 let combo = 0;
 
 let localG = G.blankState(), remoteG = G.blankState();
@@ -43,64 +42,10 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
-const MOMENTS = [];   // in-memory session gallery (full-res blob URLs) — no auto-download
-function persistThumb() {   // small thumbnail for cross-session Scrapbook
-  try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-40))); } catch (_) {}
-}
-const host = {
-  moments: MOMENTS,
-  // silent capture — collects into the Scrapbook without downloading (a download
-  // pops OS UI that can pause the tab and stall the call). Export later.
-  snapMoment: () => {
-    canvas.toBlob((b) => { if (!b) return; const url = URL.createObjectURL(b); MOMENTS.push({ url }); if (MOMENTS.length > 60) URL.revokeObjectURL(MOMENTS.shift().url); }, "image/jpeg", 0.88);
-    persistThumb();
-  },
-  // explicit download (📸 button)
-  snapshot: (name) => {
-    canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
-    persistThumb();
-  },
-  // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
-  // the whole tab (stops packets), so the partner sees a silent link and reconnects.
-  ask: (label, opts = {}) => new Promise((resolve) => {
-    const wrap = document.createElement("div"); wrap.className = "ask-modal";
-    const field = opts.multiline ? "<textarea rows='6'></textarea>" : "<input type='text' />";
-    wrap.innerHTML = `<div class="ask-card"><label>${label}</label>${field}<div class="ask-row"><button class="ask-cancel">Cancel</button><button class="ask-ok">OK</button></div></div>`;
-    document.body.appendChild(wrap);
-    const f = wrap.querySelector(opts.multiline ? "textarea" : "input");
-    if (opts.value) f.value = opts.value; setTimeout(() => f.focus(), 30);
-    const done = (v) => { wrap.remove(); resolve(v); };
-    wrap.querySelector(".ask-ok").onclick = () => done(f.value);
-    wrap.querySelector(".ask-cancel").onclick = () => done(null);
-    wrap.addEventListener("click", (e) => { if (e.target === wrap) done(null); });
-    f.addEventListener("keydown", (e) => { if (e.key === "Enter" && !opts.multiline) done(f.value); if (e.key === "Escape") done(null); });
-  }),
-  // 🗣️ voice-to-text (Web Speech API)
-  voice: createVoice(),
-  // 🔍 object detection — modes set want=true to have the loop populate labels[]
-  objects: { want: false, labels: [] },
-  // 🧍 body pose — modes set want=true; lm[] = 33 normalized {x,y} landmarks
-  pose: { want: false, lm: [] },
-  // 🕳️ body silhouette — modes set want=true; grid[gh×gw] = 1 where you are
-  seg: { want: false, gw: 22, gh: 26, grid: new Uint8Array(22 * 26), count: 0 },
-  // 🎤 live audio: level (0..1 loudness) always; pitch (Hz) only when want=true
-  audio: { level: 0, pitch: 0, want: false },
-  // 🖱️ last tap/click on the canvas, in logical (W×H) coords (mouse or touch)
-  pointer: { x: 0, y: 0, t: 0 },
-  // 🎨 dominant hue (0..360) of the centre of your video
-  videoHue: () => { try { const c = document.createElement("canvas"); c.width = 32; c.height = 32; const cx = c.getContext("2d"); cx.drawImage(localVideo, localVideo.videoWidth * .3, localVideo.videoHeight * .3, localVideo.videoWidth * .4, localVideo.videoHeight * .4, 0, 0, 32, 32); const d = cx.getImageData(0, 0, 32, 32).data; let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } r /= n; g /= n; b /= n; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn; if (dl < 18) return -1; let h = 0; if (mx === r) h = ((g - b) / dl) % 6; else if (mx === g) h = (b - r) / dl + 2; else h = (r - g) / dl + 4; h = (h * 60 + 360) % 360; return h; } catch (_) { return -1; } },
-  // 📱 phone sensors + 🌍 GPS
-  sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
-  requestSensors: async () => {
-    try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission(); } catch (_) {}
-    try { if (window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission(); } catch (_) {}
-    if (host.sensors.on) return; host.sensors.on = true;
-    window.addEventListener("deviceorientation", (e) => { host.sensors.beta = e.beta || 0; host.sensors.gamma = e.gamma || 0; });
-    window.addEventListener("devicemotion", (e) => { const a = e.accelerationIncludingGravity || {}; host.sensors.shake = Math.abs(a.x || 0) + Math.abs(a.y || 0) + Math.abs(a.z || 0); });
-  },
-  geo: () => new Promise((res) => { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude }), () => res(null), { timeout: 8000, maximumAge: 60000 }); }),
-};
+const host = createHost(canvas, localVideo);
 const games = createGames(net, host);
+const { stepObjects, stepPose, stepSeg } = createDetectors(host, localVideo);
+const audio = createAudio(host, () => games.mode === "free" && fxOn);
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -123,8 +68,6 @@ function detectLocal(dt) {
 const edges = {};
 function edge(key, cond, fn) { if (cond && !edges[key]) fn(); edges[key] = cond; }
 const squishTarget = [0, 0];
-
-const FACE_SMILE = ["✨", "⭐", "💫", "🌟", "🌸"];
 
 function sideEffects(g, side, dt) {
   if (!fxOn) return;
@@ -312,15 +255,7 @@ function handleFreeNet(m) {
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
   else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
   else if (m.t === "buzz") { try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch (_) {} FX.banner(W / 2, H * 0.3, "💓 love tap!"); FX.flood(0, W, ["💓", "💗"], 14); FX.Sound.pop(); }
-  else if (m.t === "ritual") doRitual(m.kind, false);
 }
-function doRitual(kind, send) {
-  const map = { morning: ["good morning ☀️", ["☀️", "🌻", "✨"], "sun"], afternoon: ["hey you ☀️", ["😊", "💕", "✨"], "sun"], night: ["good night 🌙", ["🌙", "⭐", "💫"], "stars"] };
-  const r = map[kind] || map.morning;
-  FX.banner(W / 2, H * 0.3, r[0]); FX.flood(0, W, r[1], 24); FX.setWeather(r[2], 0.7); FX.Sound.chime();
-  if (send) net.send({ t: "ritual", kind });
-}
-function sendRitual() { const h = new Date().getHours(); doRitual(h < 12 ? "morning" : h < 18 ? "afternoon" : "night", true); }
 function fireConfetti() { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); FX.Sound.chime(); net.send({ t: "confetti" }); }
 
 // 💑 days-together counter
@@ -386,42 +321,6 @@ function updateAmbient() {
   if (d.getMonth() === 11) s = "❄️"; else if (md === 214) s = "💝"; else if (md === 101 || md === 704) s = "🎆"; else if (md === 1031) s = "🎃";
   if (s && Math.random() < 0.025) FX.emoji(FX.rnd(0, W), -20, FX.rnd(-10, 10), FX.rnd(40, 90), s, FX.rnd(20, 34), FX.rnd(3, 5), 30, { vr: 0 });
 }
-let analyser = null, beatBuf = null, beatEMA = 0, lastTotal = 0, clapCd = 0, timeBuf = null, sampleRate = 44100;
-function initBeat(stream) {
-  try {
-    const a = new (window.AudioContext || window.webkitAudioContext)();
-    sampleRate = a.sampleRate;
-    const src = a.createMediaStreamSource(stream);
-    analyser = a.createAnalyser(); analyser.fftSize = 2048; beatBuf = new Uint8Array(analyser.frequencyBinCount); timeBuf = new Float32Array(analyser.fftSize);
-    src.connect(analyser);
-  } catch (_) {}
-}
-// autocorrelation pitch detector (for "match the note" / hum games)
-function detectPitch() {
-  if (!analyser || !timeBuf) return 0;
-  analyser.getFloatTimeDomainData(timeBuf);
-  const N = timeBuf.length; let rms = 0; for (let i = 0; i < N; i++) rms += timeBuf[i] * timeBuf[i]; rms = Math.sqrt(rms / N);
-  host.audio.level = Math.min(1, rms * 4);
-  if (!host.audio.want || rms < 0.01) return 0;              // autocorr only when a pitch game is active
-  let best = -1, bestOff = -1;
-  for (let off = 8; off < 1000; off++) { let corr = 0; for (let i = 0; i < N - off; i++) corr += timeBuf[i] * timeBuf[i + off]; corr /= (N - off); if (corr > best) { best = corr; bestOff = off; } }
-  return bestOff > 0 ? sampleRate / bestOff : 0;
-}
-function stepBeat() {
-  if (!analyser) return;
-  analyser.getByteFrequencyData(beatBuf);
-  let sum = 0; for (let i = 0; i < 24; i++) sum += beatBuf[i];      // low-end energy
-  const e = sum / (24 * 255);
-  beatEMA = beatEMA * 0.9 + e * 0.1;
-  FX.setBeat(Math.max(0, Math.min(1, (e - beatEMA) * 4)));          // transient above moving average
-  // clap / cheer detection — sharp broadband spike (free mode only)
-  let tot = 0; for (let i = 0; i < beatBuf.length; i++) tot += beatBuf[i]; tot /= beatBuf.length * 255;
-  if (clapCd > 0) clapCd--;
-  if (games.mode === "free" && fxOn && clapCd === 0 && tot - lastTotal > 0.16 && tot > 0.34) { clapCd = 30; FX.burst(W / 2, H * 0.4, ["👏", "🎉"], 12, 320); FX.Sound.applause(); }
-  lastTotal = tot;
-  host.audio.pitch = detectPitch();
-}
-
 // =====================================================================
 //  RENDER
 // =====================================================================
@@ -489,7 +388,7 @@ function loop() {
   drawFeed(remoteVideo, 1 - mySide, inCall && haveRemoteVideo);
   ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(MID - 1, 0, 2, H);
 
-  stepBeat(); updateAmbient();
+  audio.stepBeat(); updateAmbient();
   if (games.mode === "free") {
     sideEffects(localG, mySide, dt);
     if (inCall && remoteG.present) sideEffects(remoteG, 1 - mySide, dt);
@@ -515,50 +414,6 @@ async function initModels() {
   const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
   handLM = await HandLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: HAND_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numHands: 2 });
   faceLM = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
-}
-// object detector loaded lazily (only when a mode wants it — e.g. Treasure Hunt)
-let objDet = null, odLoading = false, odLastT = -1;
-async function ensureObjDet() { if (objDet || odLoading) return; odLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); objDet = await ObjectDetector.createFromOptions(vision, { baseOptions: { modelAssetPath: OD_MODEL, delegate: "GPU" }, scoreThreshold: 0.45, maxResults: 6, runningMode: "VIDEO" }); } catch (_) {} odLoading = false; }
-function stepObjects() {
-  if (!host.objects.want) return;
-  if (!objDet) { ensureObjDet(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === odLastT) return;
-  odLastT = localVideo.currentTime;
-  try { const r = objDet.detectForVideo(localVideo, performance.now() + 2); host.objects.labels = (r.detections || []).map((d) => d.categories[0] && d.categories[0].categoryName).filter(Boolean); } catch (_) {}
-}
-// pose detector — lazy (Pose Party / body games)
-let poseLM = null, poseLoading = false, poseLastT = -1;
-async function ensurePose() { if (poseLM || poseLoading) return; poseLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); poseLM = await PoseLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numPoses: 1 }); } catch (_) {} poseLoading = false; }
-function stepPose() {
-  if (!host.pose.want) return;
-  if (!poseLM) { ensurePose(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === poseLastT) return;
-  poseLastT = localVideo.currentTime;
-  try { const r = poseLM.detectForVideo(localVideo, performance.now() + 3); host.pose.lm = (r.landmarks && r.landmarks[0]) ? r.landmarks[0].map((p) => ({ x: 1 - p.x, y: p.y })) : []; } catch (_) {}
-}
-// body-silhouette segmenter — lazy (Hole in the Wall). Fills host.seg.grid with a
-// coarse "person here" occupancy map (display-mirrored to match the canvas).
-let segmenter = null, segLoading = false, segLastT = -1;
-async function ensureSeg() { if (segmenter || segLoading) return; segLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); segmenter = await ImageSegmenter.createFromOptions(vision, { baseOptions: { modelAssetPath: SEG_MODEL, delegate: "GPU" }, runningMode: "VIDEO", outputCategoryMask: true, outputConfidenceMasks: false }); } catch (_) {} segLoading = false; }
-function stepSeg() {
-  if (!host.seg.want) return;
-  if (!segmenter) { ensureSeg(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === segLastT) return;
-  segLastT = localVideo.currentTime;
-  try {
-    segmenter.segmentForVideo(localVideo, performance.now() + 5, (res) => {
-      const mask = res.categoryMask; if (!mask) return;
-      const mw = mask.width, mh = mask.height, arr = mask.getAsUint8Array();
-      const gw = host.seg.gw, gh = host.seg.gh, grid = host.seg.grid;
-      let person = 0;
-      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-        const rx = Math.min(mw - 1, Math.floor((1 - (gx + 0.5) / gw) * mw)), ry = Math.min(mh - 1, Math.floor((gy + 0.5) / gh * mh));
-        const v = arr[ry * mw + rx] || 0; const p = v !== 0 ? 1 : 0; grid[gy * gw + gx] = p; person += p;
-      }
-      host.seg.count = person;
-      if (mask.close) mask.close();
-    });
-  } catch (_) {}
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -692,139 +547,8 @@ function showReady(mode) {
   $("readyHow").innerHTML = m.how.map((h) => `<li>${h}</li>`).join("");
 }
 
-// =====================================================================
-//  MODE INFO (icon, name, category, how-to — shown before the game)
-// =====================================================================
-const MODE_INFO = {
-  free: { ic: "✨", nm: "Free Play", cat: "Free play", how: ["Smile → sparkles, kiss → flying lips, laugh → screen shakes", "👋 wave, ✌️ peace, 👍/👎, 🤟 rock-on, 👉 point = laser, 🤙 finger-guns = confetti", "🫶 make a heart with both hands → hearts flood", "Frame your face = vignette, clap = applause, snap = spotlight", "Together: reach the centre to hold hands • both smile = rainbow • both heart = eruption"] },
-  share: { ic: "📎", nm: "Share", cat: "Create", how: ["Add an image, a PDF, or capture a window/screen", "Pinch to grab & move it", "Two hands: spread = resize, twist = rotate", "Open-palm swipe to flip PDF pages"] },
-  toys: { ic: "🧸", nm: "Toys", cat: "Create", how: ["Pinch to grab & throw objects", "Open palm = magnet", "Two hands: spread = resize, twist = rotate", "Shake your head to scatter • drop one on your nose to wear it"] },
-  draw: { ic: "✏️", nm: "Draw", cat: "Create", how: ["Pinch to paint together on a shared canvas", "Use “clear” to wipe it"] },
-  stamp: { ic: "🏷️", nm: "Stamp", cat: "Create", how: ["Pinch to drop a sticker", "“next” cycles the sticker"] },
-  stars: { ic: "✨", nm: "Our Stars", cat: "Create", how: ["Pinch to place a star on the night sky", "Together you draw a constellation"] },
-  oursong: { ic: "🎶", nm: "Our Song", cat: "Create", how: ["Name your song", "Play it out loud — the vinyl & bars dance to the beat"] },
-  scrapbook: { ic: "📔", nm: "Scrapbook", cat: "Create", how: ["Close your eyes (or use Photo Booth) to snap moments — they save here", "◀ ▶ to flip • ⬇ save to download to your Photos"] },
-  catch: { ic: "🍓", nm: "Catch", cat: "Games", how: ["Treats fall from the top", "Catch them with your hand — most catches wins"] },
-  pop: { ic: "🫧", nm: "Pop", cat: "Games", how: ["Bubbles float up", "Point your finger to pop them"] },
-  hockey: { ic: "🏒", nm: "Air Hockey", cat: "Games", how: ["Your palm is the paddle", "Block the puck and knock it past your partner"] },
-  rps: { ic: "✊", nm: "Rock Paper Scissors", cat: "Games", how: ["Press “go” for a 3·2·1 countdown", "Throw ✊ fist / ✋ palm / ✌️ scissors"] },
-  dontlaugh: { ic: "😐", nm: "Don't Laugh", cat: "Games", how: ["First one to smile or laugh loses…", "…and gets a clown filter 🤡"] },
-  mirror: { ic: "🪞", nm: "Mirror Me", cat: "Games", how: ["Match the pose shown before time runs out", "Score as many as you can"] },
-  tictactoe: { ic: "#️⃣", nm: "Tic-Tac-Toe", cat: "Games", how: ["Take turns — pinch a cell to place your mark", "First three in a row wins"] },
-  thumbwar: { ic: "👍", nm: "Thumb War", cat: "Games", how: ["Both hold a 👍", "Hold it to push the thumb to your partner's side & pin them"] },
-  dancebattle: { ic: "🕺", nm: "Dance Battle", cat: "Games", how: ["A move is called out each round", "Match it in time — score vs your partner"] },
-  synctest: { ic: "💘", nm: "Sync Test", cat: "Games", how: ["A cute question appears", "Both answer with a finger count — match = in sync!"] },
-  photobooth: { ic: "📸", nm: "Photo Booth", cat: "Games", how: ["Press for a 3·2·1 countdown", "Strike a pose — it saves a framed photo to your Scrapbook"] },
-  target: { ic: "🎯", nm: "Target Track", cat: "Games", how: ["A ring drifts around your side", "Keep your fingertip on it — most seconds-on-target wins"] },
-  simon: { ic: "🙈", nm: "Simon Says", cat: "Games", how: ["Do the pose ONLY when it says “Simon says”", "Do it on a trick round and you miss the point"] },
-  balloon: { ic: "🎈", nm: "Keepy-Up", cat: "Games", how: ["A balloon falls on your side", "Bat it up with your hand — most hits before it drops wins"] },
-  reaction: { ic: "⚡", nm: "Reaction Duel", cat: "Games", how: ["Wait for it…", "Make a ✊ the instant it says GO — fastest wins the round"] },
-  winkbattle: { ic: "😉", nm: "Wink Duel", cat: "Games", how: ["Wait for GO, then 😉 wink", "First to wink wins the round"] },
-  charades: { ic: "🎭", nm: "Charades", cat: "Games", how: ["“new prompt” → act it out silently with gestures & face", "Partner guesses out loud • “reveal” the answer"] },
-  freeze: { ic: "🧊", nm: "Freeze", cat: "Games", how: ["On FREEZE, hold perfectly still", "Move your hands and you're out — last still wins"] },
-  rhythm: { ic: "🥁", nm: "Rhythm", cat: "Games", how: ["A circle pulses to a beat", "👏 clap in time — score for on-beat claps"] },
-  wish: { ic: "🙏", nm: "Make a Wish", cat: "Couple", how: ["Both press your palms together 🙏", "A shooting star grants your shared wish"] },
-  handsup: { ic: "🙌", nm: "Hands Up!", cat: "Couple", how: ["Both raise your hands at the same time", "Hype counter goes up with confetti 🥳"] },
-  q36: { ic: "💞", nm: "36 Questions", cat: "Talk & connect 💬", how: ["The famous set that “leads to love” (Arthur Aron)", "Take turns answering honestly • end with 4 min eye contact 👀"] },
-  deeptalk: { ic: "💬", nm: "Deep Talk", cat: "Talk & connect 💬", how: ["A gentle connection prompt each time", "Take turns answering"] },
-  twentyq: { ic: "🙋", nm: "20 Questions", cat: "Talk & connect 💬", how: ["One of you thinks of something", "The other asks up to 20 yes/no questions to guess it"] },
-  twotruths: { ic: "🕵️", nm: "Two Truths & a Lie", cat: "Talk & connect 💬", how: ["Write two truths and a lie about yourself", "Partner guesses which is the lie"] },
-  story: { ic: "📖", nm: "Story Builder", cat: "Talk & connect 💬", how: ["Build a silly story together", "Take turns adding one sentence each"] },
-  telepathy: { ic: "🧠", nm: "Telepathy", cat: "Talk & connect 💬", how: ["A category appears — both name the same thing", "Match = you're on the same wavelength 🎉"] },
-  connect4: { ic: "🔴", nm: "Connect Four", cat: "Games", how: ["Take turns — point to a column & pinch to drop", "First to line up four wins"] },
-  memory: { ic: "🧠", nm: "Memory Match", cat: "Games", how: ["Take turns flipping two cards (point & pinch)", "Find a pair to score and go again"] },
-  trivia: { ic: "🧩", nm: "Trivia", cat: "Games", how: ["A question with 3 options appears", "Both answer by holding up 1, 2, or 3 fingers"] },
-  vault: { ic: "🔒", nm: "The Vault", cat: "Games", how: ["Co-op! Each of you sees only HALF the code", "Tell each other, then one of you enters all 4 digits"] },
-  howwell: { ic: "🤔", nm: "How Well Do You Know Me", cat: "Talk & connect 💬", how: ["One answers a question about themselves (secret)", "The other guesses — see if you match"] },
-  whomore: { ic: "⚖️", nm: "Who's More Likely", cat: "Talk & connect 💬", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"] },
-  thisorthat: { ic: "🔀", nm: "This or That", cat: "Talk & connect 💬", how: ["Quick-fire preferences", "Pick ☝️ left / ✌️ right — build a match streak"] },
-  hangman: { ic: "🔡", nm: "Hangman", cat: "Talk & connect 💬", how: ["One sets a secret word", "The other guesses letters before the hearts run out"] },
-  sayit: { ic: "🗣️", nm: "Say It First", cat: "New senses 🎙️", how: ["A word appears — first to SAY it out loud wins", "Uses your mic (Chrome/Edge)"] },
-  decipher: { ic: "🧩", nm: "Decipher", cat: "New senses 🎙️", how: ["A riddle/scramble appears", "First to SAY the answer wins (mic)"] },
-  treasure: { ic: "🔍", nm: "Treasure Hunt", cat: "New senses 🎙️", how: ["“Bring me a banana!” — grab the object & show your camera", "First to show it wins (object recognition)"] },
-  distance: { ic: "🌍", nm: "Distance", cat: "New senses 🎙️", how: ["Both allow location", "See exactly how far apart you are 🥺 (only shared with each other)"] },
-  tilt: { ic: "📱", nm: "Tilt Maze", cat: "New senses 🎙️", how: ["On phones: “enable”, then tilt to roll the ball", "Reach the ring — most in the round wins"] },
-  shake: { ic: "📳", nm: "Shake Race", cat: "New senses 🎙️", how: ["On phones: “enable”, then “go”", "Shake your phone the most in 5 seconds"] },
-  poseparty: { ic: "🧍", nm: "Pose Party", cat: "New senses 🎙️", how: ["Stand back so your whole body is in frame", "First to strike the called-out pose wins (body tracking)"] },
-  holewall: { ic: "🕳️", nm: "Hole in the Wall", cat: "New senses 🎙️", how: ["Step back so your whole body shows", "A hole shape appears — pose so your silhouette fits before the wall hits!"] },
-  flappy: { ic: "🐤", nm: "Mouth Flappy", cat: "New senses 🎙️", how: ["Open your mouth to flap the bird up", "Fly through the pipe gaps — highest score wins"] },
-  colorhunt: { ic: "🎨", nm: "Color Hunt", cat: "New senses 🎙️", how: ["“Show me something RED!”", "Hold something that color to your camera — fastest wins"] },
-  note: { ic: "🎵", nm: "Match the Note", cat: "New senses 🎙️", how: ["A note plays — hum it back", "Hold the right pitch to score (uses your mic)"] },
-  scream: { ic: "📣", nm: "Scream Meter", cat: "New senses 🎙️", how: ["Press “go”, then cheer!", "Loudest in 5 seconds wins"] },
-  typing: { ic: "⌨️", nm: "Typing Race", cat: "New senses 🎙️", how: ["A phrase appears — just start typing", "First to type it correctly wins"] },
-  tapattack: { ic: "🎯", nm: "Tap Attack", cat: "New senses 🎙️", how: ["Tap the dots on your side (mouse/touch)", "Most taps in 20 seconds wins"] },
-  lovetap: { ic: "💓", nm: "Love Tap", cat: "Couple", how: ["Press send to buzz your partner's phone 📳", "A little haptic “thinking of you”"] },
-  kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
-  mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
-  lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
-  spinner: { ic: "🎡", nm: "Date Spinner", cat: "Couple", how: ["Spin for a random date-night idea"] },
-  pictionary: { ic: "🎨", nm: "Pictionary", cat: "Couple", how: ["One person: “new word”, then pinch to draw it", "The other: say it out loud or type a guess"] },
-  mailbox: { ic: "💌", nm: "Mailbox", cat: "Couple", how: ["“write” a love note → delivered to your partner", "Saved here so you can re-read them"] },
-  bucket: { ic: "🪣", nm: "Bucket List", cat: "Couple", how: ["“add” things to do together", "Pinch an item to check it off (synced)"] },
-  dressup: { ic: "👒", nm: "Dress-Up", cat: "Couple", how: ["Cycle through hats", "Match your partner's hat to twin 👯"] },
-  truthdare: { ic: "😈", nm: "Truth or Dare", cat: "After dark 🌶️", how: ["Press truth or dare for a flirty prompt", "Read it out and do it 😏"] },
-  pickup: { ic: "💘", nm: "Pick-up Lines", cat: "After dark 🌶️", how: ["Press for a flirty line / pick-up", "Delivered to your partner too 😘"] },
-  dareroulette: { ic: "🌶️", nm: "Dare Roulette", cat: "After dark 🌶️", how: ["Spin the wheel of bold dares", "Whatever it lands on… you do 😈"] },
-  loversdice: { ic: "🎲", nm: "Lovers' Dice", cat: "After dark 🌶️", how: ["Roll for an action × a spot", "e.g. “slow-kiss the neck” — act it out 😏"] },
-  wyr: { ic: "😏", nm: "Would You Rather", cat: "After dark 🌶️", how: ["A flirty this-or-that appears", "Vote with fingers: ☝️ left, ✌️ right — see if you match"] },
-  never: { ic: "🙈", nm: "Never Have I Ever", cat: "After dark 🌶️", how: ["A spicy confession appears each round", "Say 'I have' or 'I haven't' 😏"] },
-  slowdance: { ic: "💃", nm: "Slow Dance", cat: "Chill", how: ["Warm romantic ambiance", "Play music and sway — hearts pulse to the beat"] },
-  mood: { ic: "🕯️", nm: "Mood", cat: "Chill", how: ["Candlelit ambiance, just the two of you"] },
-  breathing: { ic: "🧘", nm: "Breathe", cat: "Chill", how: ["Follow the ring — in, hold, out", "Breathe together to relax"] },
-  karaoke: { ic: "🎤", nm: "Karaoke", cat: "Chill", how: ["Paste some lyrics", "They scroll like a teleprompter"] },
-  countdown: { ic: "⏳", nm: "Countdown", cat: "Chill", how: ["Set the date you'll next meet", "It counts down the days 🥹"] },
-};
-// each Free effect, playable on its own (mode id "fx:<id>")
-const FEATURES = [
-  ["smile", "😀", "Sparkle Smile", "Smile → sparkles rain (bigger smile = more)"],
-  ["kiss", "💋", "Flying Kisses", "Pucker/kiss → lips fly from your mouth"],
-  ["brow", "😮", "Shock", "Raise your eyebrows → 😮 and a pop"],
-  ["blink", "😉", "Camera Flash", "Hard blink → flash + a 📸 snapshot"],
-  ["tongue", "😝", "Raspberry", "Stick your tongue out → 😜 + raspberry"],
-  ["laugh", "😂", "Laugh Riot", "Open-mouth laugh → 😂 balloons + screen shake"],
-  ["frown", "☔", "Rain Cloud", "Frown → a rain cloud parks over your head"],
-  ["zoned", "💤", "Zzz", "Zone out → a 💤 floats up"],
-  ["wave", "👋", "Glitter Wave", "Open-hand wave → a glitter trail + 'hi!'"],
-  ["guns", "🤙", "Finger Guns", "Finger-guns → confetti shots"],
-  ["peace", "✌️", "Peace Rain", "✌️ peace → peace signs rain down"],
-  ["thumbsup", "👍", "Thumbs Up", "👍 → a big +1 floats up"],
-  ["thumbsdown", "👎", "Thumbs Down", "👎 → boo + tomatoes"],
-  ["rockon", "🤟", "Rock On", "🤟 → flames + concert lights + riff"],
-  ["snap", "🫰", "Spotlight", "Snap pose → a spotlight on you"],
-  ["point", "👉", "Laser Pointer", "Point → a laser dot follows your finger"],
-  ["clap", "👏", "Applause", "Clap your hands → applause + 👏"],
-  ["frame", "🖼️", "Glam Vignette", "Frame your face with both hands → vignette"],
-  ["circle", "🔮", "Orb", "Make a circle with both hands → a glowing orb"],
-  ["squish", "🤏", "Cheek Squish", "Cup your face with both hands → squiish"],
-];
-const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "New senses 🎙️", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
-for (const [id, ic, nm, how] of FEATURES) MODE_INFO["fx:" + id] = { ic, nm, cat: "Single effects 🎯", how: [how, "It's the only effect on — everything else is off."] };
-const MODE_ACTIONS = {
-  share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
-  toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
-  draw: [["clear", "clear"]], stamp: [["next", "next"], ["clear", "clear"]],
-  rps: [["start", "go"]], photobooth: [["shoot", "📸 3·2·1"]], synctest: [["go", "go"]], spinner: [["spin", "🎡 spin"]],
-  dressup: [["next", "👒 next hat"], ["off", "off"]], truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]], tictactoe: [["reset", "↺ reset"]],
-  mashup: [["go", "💞 mash"]], countdown: [["set", "📅 set date"]],
-  pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
-  karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
-  oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
-  scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["all", "⬇ all"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
-  sayit: [["go", "🗣️ go"]], decipher: [["go", "🧩 go"]], treasure: [["go", "🔍 go"]],
-  tilt: [["enable", "📱 enable"]], shake: [["enable", "📱 enable"], ["go", "📳 go"]],
-  flappy: [["go", "↻ restart"]], colorhunt: [["go", "🎨 go"]], note: [["go", "🎵 new note"]],
-  scream: [["go", "📣 go"]], typing: [["go", "⌨️ go"]], tapattack: [["go", "🎯 go"]], lovetap: [["tap", "💓 send"]],
-  holewall: [["go", "🕳️ go"]],
-  dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
-  charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
-  q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
-  twentyq: [["ask", "➕ asked"], ["swap", "🔄 swap"], ["reset", "↺"]],
-  twotruths: [["enter", "✍️ enter"], ["reveal", "👀 reveal"]],
-  story: [["add", "✍️ add"], ["clear", "🗑"]], telepathy: [["go", "🧠 new"], ["answer", "✍️ answer"]],
-  vault: [["new", "🔒 new code"], ["enter", "🔢 enter"]], connect4: [["reset", "↺ reset"]], memory: [["reset", "↺ reset"]],
-  trivia: [["go", "🧩 go"]], howwell: [["go", "🤔 new"], ["answer", "✍️ answer"]], whomore: [["go", "⚖️ go"]], thisorthat: [["go", "🔀 go"]],
-  hangman: [["set", "🔡 set word"], ["guess", "🔠 guess"]],
-};
+// Mode catalog (MODE_INFO / MODE_ACTIONS / CAT_ORDER) is assembled in
+// modes/registry.js from each topic file's co-located metadata.
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
   for (const cat of CAT_ORDER) {
@@ -846,7 +570,7 @@ async function boot(callMode) {
   try {
     await initModels();
     const stream = await startCamera();
-    initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
+    audio.initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
     inCall = !!callMode;
     if (callMode) connect($("roomInput").value.trim(), stream); else setConn("solo");
     show("menu");
