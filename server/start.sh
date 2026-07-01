@@ -14,7 +14,15 @@ case "$WHICH" in
   *) echo "usage: ./start.sh heavy|light"; echo "  heavy = dolphin-mixtral:8x7b (best)"; echo "  light = dolphin3:8b (frees the Mac)"; exit 1 ;;
 esac
 
-curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "✗ Ollama isn't running — run ./setup.sh first."; exit 1; }
+# bring the server back up if it was stopped (reload the login services)
+if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+  echo "▶ Server not up — starting it…"
+  for agent in com.webcam-magic.ollama com.webcam-magic.ngrok; do
+    P="$HOME/Library/LaunchAgents/${agent}.plist"; [ -f "$P" ] && launchctl load "$P" 2>/dev/null || true
+  done
+  for i in $(seq 1 20); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+  curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "✗ Ollama still not up — run ./setup.sh first."; exit 1; }
+fi
 
 echo "▶ Switching to ${WHICH} (${ACTIVE})…"
 ollama stop "$OTHER" 2>/dev/null || true        # free the other model's memory now
