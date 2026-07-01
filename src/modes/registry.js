@@ -69,5 +69,8 @@ export function createGames(net, host) {
     draw(ctx) { if (M && M.draw) M.draw(ctx); },
     onNet(m) { if (M && M.onNet) M.onNet(m); },
     action(a) { if (M && M.action) M.action(a); },
+    // a typed chat message; returns true if the active mode consumed it,
+    // false so app.js can hand it to the AI companion instead.
+    onChat(t) { if (M && M.onChat) { M.onChat(t); return true; } return false; },
   };
 }

@@ -167,7 +167,7 @@ static decks (kept in sync exactly like the other prompt games).
 in an AI mode (one-time download, then cached); generation runs in a **Web Worker** off the render
 loop. The **AI Game Master** goes further — the model emits tool-call JSON that the app executes
 (fire effects, set the mood, jump into a game), turning it into a host that actually drives the
-night. Content stays within the flirty-not-explicit boundary via the system prompt in `core/ai.js`.
+night. The tone (bold/adult, at your discretion) lives in the `AI_SYS` prompt in `core/ai.js`.
 
 Runs great on a desktop; on iPhone keep to the light tier (Safari's WebGPU memory limit caps model
 size). The static tier is always the floor, so the AI features degrade gracefully everywhere.
@@ -182,7 +182,10 @@ size). The static tier is always the floor, so the AI features degrade gracefull
   20–30fps; the render loop is capped at 30fps deliberately (quality over framerate).
 - Gesture thresholds are heuristic — tune them live on real cameras via the 🎚 panel.
 
-## Content boundary
+## Content
 
-Flirty / suggestive / innuendo is fine and always on (the **After dark 🌶️** category), but
-**no sexually explicit content or nudity.** This line is intentional; please keep it.
+This is a **private app for one couple** running a **local** model on their own devices — nothing
+is sent to a server. The tone is deliberately uninhibited and adult: the **After dark 🌶️** and
+**AI ✨** modes lean bold, spicy and suggestive by design, at the couple's discretion. The tone
+lives in `AI_SYS` in `src/core/ai.js` and is theirs to tune. The only hard floor kept in the prompt
+is the non-negotiable stuff (nothing involving minors, non-consent, or anything illegal/harmful).

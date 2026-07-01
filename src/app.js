@@ -10,6 +10,7 @@ import { createHost } from "./core/host.js";
 import { createDetectors } from "./core/detectors.js";
 import { createAudio } from "./core/audio.js";
 import { createAI } from "./core/ai.js";
+import { createChat } from "./core/chat.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -59,6 +60,18 @@ const aiTools = {
 };
 const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
 host.ai = ai;
+
+// ---- chat dock: inline input (replaces the old modal) + AI companion + voice.
+// Typing in ANY mode: if the mode handles it (games.onChat) use that, else it's
+// a message to the AI companion (Cupid) — available everywhere out of the box.
+const CHAT_FB = ["mm, tell me more 😏", "you two are trouble 💕", "I like where this is going…", "ask me for a dare 😈", "load the AI (⬇) and I'll actually think 🧠"];
+function defaultChat(text) {
+  net.send({ t: "chat", who: "partner", text });                 // partner sees my message
+  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } });
+}
+const chat = createChat({ voice: host.voice, onSend: (t) => { if (!games.onChat(t)) defaultChat(t); } });
+host.chat = chat;
+host.ask = chat.ask;      // inline dock input replaces the blocking modal
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -483,6 +496,7 @@ function route(data) {
   if (!data) return;
   if (data.t === "nav") { navTo(data.screen, data.mode, true); return; }
   if (data.t === "cap" || data.t === "llm-req" || data.t === "llm-res") { host.ai.onNet(data); return; }
+  if (data.t === "chat") { host.chat.say(data.who, data.text); return; }
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
   games.onNet(data); handleFreeNet(data);
 }
@@ -553,6 +567,7 @@ function enterPlay(mode) {
   const bar = $("actionbar"); bar.innerHTML = "";
   (MODE_ACTIONS[mode] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
   bar.classList.toggle("hidden", !MODE_ACTIONS[mode]);
+  if (host.chat) { host.chat.clear(); const mi = MODE_INFO[mode]; if (mi) { host.chat.say("sys", mi.ic + " " + mi.nm); if (mi.how && mi.how[0]) host.chat.say("sys", mi.how[0]); } }
   show("play");
 }
 function showReady(mode) {

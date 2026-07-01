@@ -56,18 +56,45 @@ button:hover { filter: brightness(1.08); }
 #readyHow li { margin-bottom: 6px; }
 #ready .row { margin-top: 6px; }
 
-/* play */
+/* play — top bar, then a body split into the left chat dock + the video stage */
 #play { display: flex; flex-direction: column; }
-#playTop { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+#playTop { display: flex; align-items: center; gap: 8px; padding: 10px 14px; flex-wrap: wrap; }
 #modePill { background: #1b2138; border-color: var(--accent2); }
-#stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px; }
-/* width:auto + height:auto + max caps => scales uniformly, never stretched */
-#stage canvas { background: #000; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.5); width: auto; height: auto; object-fit: contain; max-width: 98vw; }
+#playBody { flex: 1; display: flex; min-height: 0; gap: 10px; padding: 0 10px 10px; }
+
+/* left dock: mode actions, a message feed, and the input/voice bar */
+#chatDock { width: 340px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 10px; }
+#chatFeed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+#chatFeed .msg { max-width: 92%; padding: 8px 12px; border-radius: 14px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+#chatFeed .msg.you { align-self: flex-end; background: linear-gradient(180deg, var(--accent), #e34d78); color: #fff; border-bottom-right-radius: 4px; }
+#chatFeed .msg.ai { align-self: flex-start; background: #241b2e; border: 1px solid #43314f; border-bottom-left-radius: 4px; }
+#chatFeed .msg.partner { align-self: flex-start; background: #16233a; border: 1px solid #26466b; }
+#chatFeed .msg.sys { align-self: center; background: transparent; color: var(--muted); font-size: 12px; text-align: center; }
+#chatForm { display: flex; gap: 6px; align-items: center; padding-top: 8px; }
+#chatInput { flex: 1; min-width: 0; background: #11131c; color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 10px 14px; font: inherit; font-size: 15px; outline: none; }
+#chatInput:focus { border-color: var(--accent2); }
+#chatForm .chip { padding: 8px 10px; }
+#chatForm .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+#chatSend { padding: 10px 14px; border-radius: 999px; }
+
+/* video stage fills the rest, still scaled uniformly (never stretched) */
+#stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; min-width: 0; }
+#stage canvas { background: #000; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.5); width: auto; height: auto; object-fit: contain; max-width: 100%; }
 #stage[data-size="s"] canvas { max-height: 55vh; }
 #stage[data-size="m"] canvas { max-height: 76vh; }
-#stage[data-size="l"] canvas { max-height: 92vh; }
-#actionbar { display: flex; gap: 8px; justify-content: center; padding: 0 0 16px; flex-wrap: wrap; }
-#actionbar button { background: #1b2030; color: var(--text); border: 1px solid var(--border); padding: 9px 16px; font-size: 14px; }
+#stage[data-size="l"] canvas { max-height: 88vh; }
+#actionbar { display: flex; gap: 6px; padding: 0 2px 8px; flex-wrap: wrap; }
+#actionbar button { background: #1b2030; color: var(--text); border: 1px solid var(--border); padding: 8px 12px; font-size: 13px; }
+
+/* mobile / portrait: stack video on top, dock below */
+@media (max-width: 860px), (orientation: portrait) {
+  #playBody { flex-direction: column; }
+  #chatDock { width: auto; order: 2; max-height: 40vh; }
+  #stage { order: 1; }
+  #stage canvas { max-width: 100%; }
+  #stage[data-size="s"] canvas, #stage[data-size="m"] canvas, #stage[data-size="l"] canvas { max-height: 46vh; }
+}
 
 /* non-blocking ask modal */
 .ask-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(4,6,12,.6); backdrop-filter: blur(4px); padding: 20px; }
