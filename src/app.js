@@ -11,6 +11,7 @@ import { createDetectors } from "./core/detectors.js";
 import { createAudio } from "./core/audio.js";
 import { createAI } from "./core/ai.js";
 import { createChat } from "./core/chat.js";
+import { ICON, hydrateIcons } from "./core/icons.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -19,6 +20,7 @@ const { W, H, MID, toCanvas } = FX;
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
 const localVideo = $("localVideo"), remoteVideo = $("remoteVideo");
+hydrateIcons();                    // swap <i data-ic="…"> placeholders for inline SVG
 
 // Render at higher-than-logical resolution so the feed isn't upscaled/blurry.
 // Drawing math stays in the logical 1280x720 space; the context is scaled by RS,
@@ -70,7 +72,8 @@ window.wmAI = ai;
 const CHAT_FB = ["mm, tell me more 😏", "you two are trouble 💕", "I like where this is going…", "ask me for a dare 😈", "load the AI (⬇) and I'll actually think 🧠"];
 function defaultChat(text) {
   net.send({ t: "chat", who: "partner", text });                 // partner sees my message
-  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } });
+  if (host.chat.thinking) host.chat.thinking(true);
+  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } });
 }
 const chat = createChat({ voice: host.voice, onSend: (t) => { if (!games.onChat(t)) defaultChat(t); } });
 host.chat = chat;
@@ -364,9 +367,15 @@ function drawFeed(video, side, has) {
     const sc = Math.max(MID / vw, H / vh), dw = vw * sc, dh = vh * sc;
     ctx.drawImage(video, (MID - dw) / 2, (H - dh) / 2, dw, dh);
   } else {
-    ctx.fillStyle = "#0d1018"; ctx.fillRect(side * MID, 0, MID, H);
-    ctx.fillStyle = "#566"; ctx.font = "20px system-ui"; ctx.textAlign = "center";
-    ctx.fillText("waiting for partner…", side * MID + MID / 2, H / 2);
+    const cx = side * MID + MID / 2;
+    const g = ctx.createLinearGradient(side * MID, 0, side * MID, H);
+    g.addColorStop(0, "#0e1120"); g.addColorStop(1, "#0a0c16");
+    ctx.fillStyle = g; ctx.fillRect(side * MID, 0, MID, H);
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.globalAlpha = 0.9; ctx.font = "44px serif"; ctx.fillText("💫", cx, H / 2 - 34);
+    ctx.globalAlpha = 1; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "500 19px system-ui";
+    ctx.fillText("waiting for your partner…", cx, H / 2 + 24);
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -550,7 +559,11 @@ window.addEventListener("beforeunload", leaveRooms);
 // =====================================================================
 //  SCREENS  (lobby → menu → ready → play)
 // =====================================================================
-function setConn(t) { $("connPill").textContent = t; $("connPill2").textContent = t; }
+function setConn(t) {
+  const state = /connected/i.test(t) ? "ok" : /solo/i.test(t) ? "off" : "warn";
+  const label = t.replace(/\s*💚\s*$/, "");                 // dot now conveys status
+  [$("connPill"), $("connPill2")].forEach((el) => { el.textContent = label; el.dataset.state = state; });
+}
 const SCREENS = ["lobby", "menu", "ready", "play"];
 function show(id) { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !== id)); playing = (id === "play"); }
 
@@ -672,15 +685,15 @@ async function boot(callMode) {
   } catch (e) { $("lobbyHint").textContent = "Couldn't start: " + (e.message || e) + " — allow camera & use https/localhost."; }
 }
 
-const copyLink = async (el) => { try { await navigator.clipboard.writeText(location.href); const o = el.textContent; el.textContent = "✓ copied"; setTimeout(() => (el.textContent = o), 1500); } catch (_) {} };
+const copyLink = async (btn) => { const lbl = btn.querySelector(".lbl") || btn; try { await navigator.clipboard.writeText(location.href); const o = lbl.textContent; lbl.textContent = "copied ✓"; setTimeout(() => (lbl.textContent = o), 1500); } catch (_) {} };
 $("joinBtn").addEventListener("click", () => {
   if (!$("roomInput").value.trim()) { $("roomInput").focus(); return; }
   const u = new URL(location.href); u.searchParams.set("room", $("roomInput").value.trim()); history.replaceState(null, "", u);
   boot(true);
 });
 $("soloBtn").addEventListener("click", () => boot(false));
-$("copyLinkBtn").addEventListener("click", (e) => copyLink(e.target));
-$("copyLink2").addEventListener("click", (e) => copyLink(e.target));
+$("copyLinkBtn").addEventListener("click", (e) => copyLink(e.currentTarget));
+$("copyLink2").addEventListener("click", (e) => copyLink(e.currentTarget));
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
 $("aiPill").addEventListener("click", aiPillClick);
 $("aiPill2").addEventListener("click", aiPillClick);
@@ -693,16 +706,16 @@ $("readyStart").addEventListener("click", () => navTo("play", pendingMode));
 $("readyBack").addEventListener("click", () => navTo("menu"));
 // play screen controls
 $("menuBtn").addEventListener("click", () => navTo("menu"));
-$("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.45; });
+$("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.currentTarget.classList.toggle("off", !fxOn); });
 $("snapBtn").addEventListener("click", () => host.snapshot("webcam-magic"));
-function reflectEye() { const b = $("eyeBtn"); b.style.opacity = eyeCapOn ? 1 : 0.4; b.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; }
+function reflectEye() { const b = $("eyeBtn"); b.classList.toggle("off", !eyeCapOn); const ic = b.querySelector(".icon"); if (ic) ic.innerHTML = eyeCapOn ? ICON.eye : ICON.eyeOff; b.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; }
 $("eyeBtn").addEventListener("click", () => { eyeCapOn = !eyeCapOn; try { localStorage.setItem("wm_eyecap", eyeCapOn ? "1" : "0"); } catch (_) {} reflectEye(); });
 reflectEye();
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("loveBtn2").addEventListener("click", sendSweet);
 $("confettiBtn2").addEventListener("click", fireConfetti);
 const SIZES = ["s", "m", "l"];
-$("sizeBtn").addEventListener("click", (e) => { const cur = $("stage").dataset.size, n = SIZES[(SIZES.indexOf(cur) + 1) % 3]; $("stage").dataset.size = n; e.target.textContent = "⤢ " + n.toUpperCase(); });
+$("sizeBtn").addEventListener("click", () => { const cur = $("stage").dataset.size, n = SIZES[(SIZES.indexOf(cur) + 1) % 3]; $("stage").dataset.size = n; const l = $("sizeBtn").querySelector(".lbl"); if (l) l.textContent = n.toUpperCase(); });
 
 // live tuning panel — sliders bound to gestures.TUNE
 const TUNE_META = {

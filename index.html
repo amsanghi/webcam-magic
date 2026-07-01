@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Webcam Magic — gesture & face party for two</title>
-<link rel="stylesheet" href="./style.css?v=5" />
+<link rel="stylesheet" href="./style.css?v=6" />
 <!-- redeploy nudge: force a fresh GitHub Pages build -->
 </head>
 <body>
@@ -14,37 +14,44 @@
 
   <!-- STEP 1 — connect ----------------------------------------------------->
   <section id="lobby" class="screen">
-    <h1>✨ Webcam Magic</h1>
-    <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
-      Runs entirely in your browser — no server, no recording, nothing leaves your devices.</p>
-    <label class="field">
-      <span>Secret room word (you &amp; your partner type the same thing)</span>
-      <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
-    </label>
-    <div class="row">
-      <button id="joinBtn">Join call →</button>
-      <button id="soloBtn" class="ghost-btn">Try solo</button>
+    <div class="lobby-card">
+      <div class="brand"><span class="brand-mark">✨</span><h1>Webcam Magic</h1></div>
+      <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
+        Runs entirely in your browser — no server, no recording, nothing leaves your devices.</p>
+      <label class="field">
+        <span>Secret room word <em>— you &amp; your partner type the same thing</em></span>
+        <input id="roomInput" type="text" placeholder="e.g. moonpie-42" autocomplete="off" />
+      </label>
+      <div class="row">
+        <button id="joinBtn">Join call <i class="icon" data-ic="arrowRight"></i></button>
+        <button id="soloBtn" class="ghost-btn">Try solo</button>
+      </div>
+      <button id="copyLinkBtn" class="link-btn hidden"><i class="icon" data-ic="link"></i><span class="lbl">Copy invite link</span></button>
+      <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
     </div>
-    <button id="copyLinkBtn" class="link-btn hidden">🔗 Copy invite link</button>
-    <p class="hint" id="lobbyHint">Camera permission required. Best in Chrome / Edge. On iOS use Safari.</p>
   </section>
 
   <!-- STEP 2 — pick a mode -------------------------------------------------->
   <section id="menu" class="screen hidden">
     <div class="menubar">
-      <span class="pill" id="connPill">solo</span>
+      <span class="pill status" id="connPill">solo</span>
       <span class="grow"></span>
       <span class="pill" id="streak" title="hearts">💞 x0</span>
       <span class="pill clickable" id="anniv" title="set your anniversary">💑 set date</span>
       <button class="chip clickable" id="aiPill" title="On-device AI — click to load">✨ AI</button>
-      <button class="chip" id="copyLink2">🔗 invite</button>
-      <button class="chip" id="tuneBtn" title="Tuning">🎚</button>
+      <button class="chip" id="copyLink2" title="Copy invite link"><i class="icon" data-ic="link"></i><span class="lbl">invite</span></button>
+      <button class="chip icon-btn" id="tuneBtn" title="Tuning" aria-label="Tuning"><i class="icon" data-ic="sliders"></i></button>
     </div>
-    <h2>Pick something to do together</h2>
-    <p class="muted">Either of you can choose — your partner comes along automatically.</p>
+    <div class="menuhead">
+      <h2>Pick something to do together</h2>
+      <p class="muted">Either of you can choose — your partner comes along automatically.</p>
+    </div>
     <div class="menutools">
-      <input id="menuSearch" type="text" placeholder="🔎 search modes…" autocomplete="off" />
-      <button class="chip" id="surpriseBtn" title="Pick a random mode">🎲 Surprise us</button>
+      <div class="search-wrap">
+        <i class="icon" data-ic="search"></i>
+        <input id="menuSearch" type="text" placeholder="Search modes…" autocomplete="off" />
+      </div>
+      <button class="chip" id="surpriseBtn" title="Pick a random mode"><i class="icon" data-ic="shuffle"></i><span class="lbl">Surprise us</span></button>
     </div>
     <div id="menuGrid"></div>
   </section>
@@ -56,8 +63,8 @@
       <h2 id="readyName">Mode</h2>
       <ul id="readyHow"></ul>
       <div class="row">
-        <button class="ghost-btn" id="readyBack">← Back</button>
-        <button id="readyStart">▶ Start</button>
+        <button class="ghost-btn" id="readyBack"><i class="icon" data-ic="arrowLeft"></i><span class="lbl">Back</span></button>
+        <button id="readyStart"><i class="icon" data-ic="play"></i><span class="lbl">Start</span></button>
       </div>
     </div>
   </section>
@@ -65,28 +72,32 @@
   <!-- STEP 3 — play --------------------------------------------------------->
   <section id="play" class="screen hidden">
     <div id="playTop">
-      <span class="pill" id="connPill2">connected 💚</span>
+      <span class="pill status" id="connPill2">connected 💚</span>
       <span class="pill" id="modePill">✨ Free</span>
       <span class="grow"></span>
       <button class="chip clickable" id="aiPill2" title="On-device AI — click to load">✨</button>
-      <button class="chip" id="menuBtn" title="Back to menu">≡ menu</button>
-      <button class="chip" id="sizeBtn" title="Resize video">⤢ M</button>
-      <button class="chip" id="fxBtn" title="Toggle effects">✨</button>
-      <button class="chip" id="loveBtn2" title="Sweet nothing">💌</button>
-      <button class="chip" id="confettiBtn2" title="Confetti">🎉</button>
-      <button class="chip" id="snapBtn" title="Snapshot">📸</button>
-      <button class="chip" id="eyeBtn" title="Close your eyes to snap a photo (on)">👁</button>
-      <button class="chip" id="leaveBtn" title="Leave">✕</button>
+      <button class="chip" id="menuBtn" title="Back to menu"><i class="icon" data-ic="grid"></i><span class="lbl">Menu</span></button>
+      <button class="chip" id="sizeBtn" title="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
+      <button class="chip icon-btn" id="fxBtn" title="Toggle effects" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
+      <button class="chip icon-btn" id="loveBtn2" title="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
+      <button class="chip icon-btn" id="confettiBtn2" title="Confetti" aria-label="Confetti"><i class="icon" data-ic="party"></i></button>
+      <button class="chip icon-btn" id="snapBtn" title="Snapshot" aria-label="Snapshot"><i class="icon" data-ic="camera"></i></button>
+      <button class="chip icon-btn" id="eyeBtn" title="Close your eyes to snap a photo (on)" aria-label="Eye-capture"><i class="icon" data-ic="eye"></i></button>
+      <button class="chip icon-btn danger" id="leaveBtn" title="Leave" aria-label="Leave"><i class="icon" data-ic="x"></i></button>
     </div>
     <div id="playBody">
       <aside id="chatDock">
+        <div class="dock-head">
+          <span class="dock-avatar" data-ic="sparkles"></span>
+          <div class="dock-title"><strong>Cupid</strong><small>your playful AI companion</small></div>
+        </div>
         <div id="actionbar" class="hidden"></div>
         <div id="chatFeed"></div>
         <form id="chatForm" autocomplete="off">
-          <button type="button" id="micBtn" class="chip" title="Speak (voice input)">🎤</button>
+          <button type="button" id="micBtn" class="icon-btn" title="Speak (voice input)" aria-label="Voice input"><i class="icon" data-ic="mic"></i></button>
           <input id="chatInput" type="text" placeholder="Message Cupid, or type your answer…" />
-          <button type="button" id="ttsBtn" class="chip" title="Read AI replies aloud">🔊</button>
-          <button type="submit" id="chatSend" title="Send">➤</button>
+          <button type="button" id="ttsBtn" class="icon-btn" title="Read AI replies aloud" aria-label="Read replies aloud"><i class="icon" data-ic="volumeOff"></i></button>
+          <button type="submit" id="chatSend" title="Send" aria-label="Send"><i class="icon" data-ic="send"></i></button>
         </form>
       </aside>
       <div id="stage" data-size="l"><canvas id="canvas" width="1280" height="720"></canvas></div>

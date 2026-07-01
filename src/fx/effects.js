@@ -7,6 +7,11 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 export { rnd, pick };
 
+function rr(ctx, x, y, w, h, r) {           // rounded-rect path (canvas-native w/ fallback)
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
 // ---------------------------------------------------------------------------
 // PARTICLES
 // ---------------------------------------------------------------------------
@@ -291,10 +296,18 @@ export function drawOverlays(ctx) {
       ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(o.x, o.y, 20 + k * 90, 0, 7); ctx.stroke();
       ctx.restore();
     } else if (o.kind === "banner") {
-      ctx.save(); ctx.globalAlpha = Math.min(1, (1 - k) * 2); ctx.textAlign = "center";
-      ctx.translate(o.x, o.y - k * 40); ctx.font = "bold 46px system-ui";
-      ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.strokeText(o.text, 0, 0);
-      ctx.fillStyle = "#fff"; ctx.fillText(o.text, 0, 0); ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (1 - k) * 2);
+      ctx.translate(o.x, o.y - k * 40);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const size = 42; ctx.font = `700 ${size}px system-ui`;
+      const w = ctx.measureText(o.text).width + size * 1.5, h = size * 1.72;
+      ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
+      ctx.fillStyle = "rgba(10,12,20,0.66)"; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.stroke();
+      ctx.fillStyle = "#fff"; ctx.fillText(o.text, 0, 0);
+      ctx.restore();
     } else if (o.kind === "blush") {
       ctx.save(); ctx.globalAlpha = (1 - k) * 0.6; ctx.fillStyle = "#ff7aa8";
       for (const dx of [-26, 26]) { ctx.beginPath(); ctx.arc(o.x + dx, o.y + 6, 16, 0, 7); ctx.fill(); }
