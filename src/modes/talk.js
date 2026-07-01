@@ -170,6 +170,7 @@ export function hangmanMode() {
     onNet(m) { if (m.t === "hm-word") { word = m.w; guessed = []; wrong = 0; setter = m.s; phase = "play"; } else if (m.t === "hm-g") { guessed = m.g; wrong = m.wr; if (word && word.split("").every((c) => c === " " || guessed.includes(c))) phase = "win"; if (wrong >= 6) phase = "lose"; } },
     async action(a) {
       if (a === "set") { const v = await host.ask("Set a secret word or short phrase:"); if (v) { word = v.toLowerCase().trim(); guessed = []; wrong = 0; setter = meIdx(); phase = "play"; net.send({ t: "hm-word", w: word, s: setter }); } }
+      else if (a === "ai") { const v = await host.ai.ask({ system: "Give ONE fun word or short two-word phrase for hangman. Just it, lowercase, no punctuation.", user: "one word", max: 8, temp: 1.15 }, () => pick(["moonlight", "adventure", "butterfly", "road trip", "first kiss", "sunshine"])); word = (String(v).toLowerCase().trim().replace(/[^a-z ]/g, "")) || "sunshine"; guessed = []; wrong = 0; setter = meIdx(); phase = "play"; net.send({ t: "hm-word", w: word, s: setter }); }
       else if (a === "guess") { if (phase !== "play" || meIdx() === setter) return; const v = await host.ask("Guess a letter:"); if (v) { const c = v.toLowerCase().trim()[0]; if (c && !guessed.includes(c)) { guessed.push(c); if (!word.includes(c)) wrong++; net.send({ t: "hm-g", g: guessed, wr: wrong }); if (word.split("").every((x) => x === " " || guessed.includes(x))) { phase = "win"; FX.confetti(W / 2, H / 2, 30); } else if (wrong >= 6) phase = "lose"; } } }
     },
     draw(ctx) {
@@ -191,5 +192,5 @@ export const modes = {
   "howwell": { cat: "Talk & connect 💬", ic: "🤔", nm: "How Well Do You Know Me", how: ["One answers a question about themselves (secret)", "The other guesses — see if you match"], actions: [["go", "🤔 new"], ["answer", "✍️ answer"]], make: howWellMode },
   "whomore": { cat: "Talk & connect 💬", ic: "⚖️", nm: "Who's More Likely", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"], actions: [["go", "⚖️ go"]], make: whoMoreMode },
   "thisorthat": { cat: "Talk & connect 💬", ic: "🔀", nm: "This or That", how: ["Quick-fire preferences", "Pick ☝️ left / ✌️ right — build a match streak"], actions: [["go", "🔀 go"]], make: thisOrThatMode },
-  "hangman": { cat: "Talk & connect 💬", ic: "🔡", nm: "Hangman", how: ["One sets a secret word", "The other guesses letters before the hearts run out"], actions: [["set", "🔡 set word"], ["guess", "🔠 guess"]], make: hangmanMode },
+  "hangman": { cat: "Talk & connect 💬", ic: "🔡", nm: "Hangman", how: ["One sets a secret word (or 🤖 let AI pick)", "The other guesses letters before the hearts run out"], actions: [["set", "🔡 set word"], ["ai", "🤖 word"], ["guess", "🔠 guess"]], make: hangmanMode },
 };
