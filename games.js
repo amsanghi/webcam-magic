@@ -183,7 +183,7 @@ export function createGames(net, host) {
           if (c && Math.abs(c.x - it.x) < 0.1 && Math.abs(c.y - it.y) < 0.13) { score[it.owner]++; const p = toCanvas(it, it.owner); FX.sparkleAt(p.x, p.y, 6); FX.Sound.pop(); items.splice(i, 1); continue; }
           if (it.y > 1.1) items.splice(i, 1);
         }
-        bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "catch", i: items, s: score, tm: time }); }
+        bc += dt; if (bc > 0.12) { bc = 0; net.send({ t: "catch", i: items.map((o) => ({ x: +o.x.toFixed(3), y: +o.y.toFixed(3), owner: o.owner, ch: o.ch })), s: score, tm: +time.toFixed(1) }); }
       },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -209,7 +209,7 @@ export function createGames(net, host) {
           if (c && Math.abs(c.x - b.x) < b.r + 0.03 && Math.abs(c.y - b.y) < b.r + 0.05) { score[b.owner]++; const p = toCanvas(b, b.owner); FX.burst(p.x, p.y, ["💧", "✨"], 6, 200); FX.Sound.pop(); bubbles.splice(i, 1); continue; }
           if (b.y < -0.1) bubbles.splice(i, 1);
         }
-        bc += dt; if (bc > 0.07) { bc = 0; net.send({ t: "pop", b: bubbles, s: score }); }
+        bc += dt; if (bc > 0.12) { bc = 0; net.send({ t: "pop", b: bubbles.map((o) => ({ x: +o.x.toFixed(3), y: +o.y.toFixed(3), r: +o.r.toFixed(3), hue: o.hue, owner: o.owner })), s: score }); }
       },
       draw(ctx) {
         for (const b of bubbles) { const p = toCanvas(b, b.owner), r = b.r * MID; ctx.save(); ctx.fillStyle = `hsl(${b.hue},85%,60%)`; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.beginPath(); ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.25, 0, 7); ctx.fill(); ctx.restore(); }

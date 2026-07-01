@@ -18,7 +18,9 @@ const localVideo = $("localVideo"), remoteVideo = $("remoteVideo");
 // Render at higher-than-logical resolution so the feed isn't upscaled/blurry.
 // Drawing math stays in the logical 1280x720 space; the context is scaled by RS,
 // so the canvas backing store is RS× sharper (e.g. 2560x1440 on a retina screen).
-const RS = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+const RS = Math.min(window.innerWidth, window.innerHeight) < 820
+  ? 1.5                                                    // lighter on phones so audio/video stay smooth
+  : Math.min(3, Math.max(2, window.devicePixelRatio || 1));
 canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
 ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
 
@@ -438,13 +440,25 @@ function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h <
 const roomId = (w) => "wm" + hashStr(w.trim().toLowerCase());
 let entries = [], primary = null, localStream = null;
 
+// Compact packet — round coords to 2 decimals & drop inactive x/y so the data
+// channel doesn't flood and starve the voice/audio stream.
+const r2 = (v) => Math.round(v * 100) / 100;
+const rp = (p) => p ? { x: r2(p.x), y: r2(p.y) } : null;
 function packet() {
-  const g = localG;
-  return { k: "g", present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
-    pinch: g.pinch, point: g.point, palm: g.palm, hands: g.hands, two: g.two,
-    face: { present: g.face.present, smile: +g.face.smile.toFixed(2), kiss: +g.face.kiss.toFixed(2),
-            brow: +g.face.brow.toFixed(2), frown: +g.face.frown.toFixed(2), blink: +g.face.blink.toFixed(2),
-            tongue: +g.face.tongue.toFixed(2), laugh: g.face.laugh, zoned: g.face.zoned, nose: g.face.nose, mouth: g.face.mouth } };
+  const g = localG, F = g.face, tw = g.two;
+  return {
+    k: "g", present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
+    pinch: g.pinch.active ? { active: true, x: r2(g.pinch.x), y: r2(g.pinch.y) } : { active: false },
+    point: g.point.active ? { active: true, x: r2(g.point.x), y: r2(g.point.y) } : { active: false },
+    palm: rp(g.palm), hands: (g.hands || []).map(rp),
+    two: {
+      heart: tw.heart, frame: tw.frame, clap: tw.clap, cup: tw.cup, armsWide: tw.armsWide,
+      spread: { active: tw.spread.active, dist: r2(tw.spread.dist) },
+      twist: { active: tw.twist.active, angle: r2(tw.twist.angle) },
+      circle: tw.circle.active ? { active: true, x: r2(tw.circle.x), y: r2(tw.circle.y), r: r2(tw.circle.r) } : { active: false, x: 0, y: 0, r: 0 },
+    },
+    face: { present: F.present, smile: r2(F.smile), kiss: r2(F.kiss), brow: r2(F.brow), frown: r2(F.frown), blink: r2(F.blink), tongue: r2(F.tongue), laugh: F.laugh, zoned: F.zoned, headShake: F.headShake, nose: rp(F.nose), mouth: rp(F.mouth) },
+  };
 }
 
 // ---- connection: race mqtt + torrent, retry fast until connected ----------
@@ -474,7 +488,7 @@ function connect(word, stream) {
     r.onPeerJoin = (pid) => {
       entry.connected = true; connectedOnce = true; reconnectAttempts = 0; clearTimeout(reconnectTimer); lastRx = Date.now();
       amInitiator = String(Trystero.selfId) > String(pid); games.setAuthority(amInitiator); mySide = amInitiator ? 0 : 1;
-      if (!primary) { primary = entry; sendMsg = (o) => entries.forEach((e) => e.connected && e.action.send(o)); }
+      if (!primary) { primary = entry; sendMsg = (o) => { const e = entries.find((x) => x.connected); if (e) e.action.send(o); }; }   // one transport only (no double-send)
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚");
     };
@@ -491,7 +505,7 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { if (!connectedOnce && roomWord) { reconnectAttempts++; connect(); } }, delay);
 }
 // heartbeat: gesture packets stream constantly; if they go silent, rejoin
-setInterval(() => { if (sendMsg) sendMsg(packet()); }, 80);
+setInterval(() => { if (sendMsg) sendMsg(packet()); }, 100);
 setInterval(() => { if (connectedOnce && Date.now() - lastRx > 9000) { connectedOnce = false; setConn("reconnecting…"); reconnectAttempts++; connect(); } }, 3000);
 window.addEventListener("beforeunload", leaveRooms);
 
