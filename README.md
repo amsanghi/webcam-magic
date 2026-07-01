@@ -81,6 +81,9 @@ Menu sections, in order (`CAT_ORDER` in `src/modes/registry.js`):
 - **New senses 🎙️** — Say It First, Decipher, Treasure Hunt, Distance, Tilt Maze, Shake Race,
   Pose Party, Hole in the Wall, Mouth Flappy, Color Hunt, Match the Note, Scream Meter, Typing
   Race, Tap Attack.
+- **AI ✨** — Cupid (AI companion), AI Game Master (drives the app), AI Adventure, Mad Libs, and
+  generative Truth-or-Dare / Would-You-Rather / Deep Talk / Date Ideas / Pet Names / Roast & Toast.
+  See "On-device AI" below.
 - **Couple** — Kiss Cam, Name Mash, Love Calc, Date Spinner, Pictionary, Mailbox, Bucket List,
   Dress-Up, Make a Wish, Hands Up, Love Tap.
 - **Talk & connect 💬** — 36 Questions, Deep Talk, 20 Questions, Two Truths, Story Builder,
@@ -140,6 +143,34 @@ shape, the authority/side model, and the full `host` API.
 **Adding a new gesture:** add the field to `blankState()` and compute it in
 `classifyHands`/`classifyFace` in `src/perception/gestures.js`, **and** add it to `packet()` in
 `src/app.js` so the partner receives it (thresholds go in `TUNE`, live-tunable via the 🎚 panel).
+
+## On-device AI (opt-in, still no server)
+
+The **AI ✨** modes run a language model **in the browser** (WebGPU) — no API keys, no server,
+nothing leaves your devices. It's fully compatible with the static GitHub Pages host: the engine
+is an ES module from a CDN and the model weights download client-side from HuggingFace/MLC and are
+then cached. Three auto-detected tiers:
+
+| Tier | Device | Engine + model | 
+| --- | --- | --- |
+| **0 Static** | anything (no WebGPU / opted out) | none — hand-written fallback decks, instant, offline |
+| **1 Light** | iPhone / basic laptop w/ WebGPU | transformers.js + Qwen2.5-0.5B (~400 MB) |
+| **2 Powerhouse** | desktop Chrome/Edge + WebGPU + memory | WebLLM + Llama-3.1-8B (~4.6 GB) |
+
+**Powerhouse → receiver:** the peers exchange their tier; the higher-tier device becomes the
+*generator*, runs the model, and broadcasts only the resulting **text** over the existing data
+channel — the other device just displays it and runs no model. So one strong laptop can serve a
+partner on a phone or a basic laptop. If neither device is capable, everything falls back to the
+static decks (kept in sync exactly like the other prompt games).
+
+**Opt-in + lazy:** detecting a tier downloads nothing. The model only loads when you press **⬇ AI**
+in an AI mode (one-time download, then cached); generation runs in a **Web Worker** off the render
+loop. The **AI Game Master** goes further — the model emits tool-call JSON that the app executes
+(fire effects, set the mood, jump into a game), turning it into a host that actually drives the
+night. Content stays within the flirty-not-explicit boundary via the system prompt in `core/ai.js`.
+
+Runs great on a desktop; on iPhone keep to the light tier (Safari's WebGPU memory limit caps model
+size). The static tier is always the floor, so the AI features degrade gracefully everywhere.
 
 ## Caveats (honest)
 

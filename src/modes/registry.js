@@ -17,11 +17,12 @@ import { modes as couple } from "./couple.js";
 import { modes as talk } from "./talk.js";
 import { modes as chill } from "./chill.js";
 import { modes as afterdark } from "./afterdark.js";
+import { modes as aiModes } from "./ai.js";
 
-const GROUPS = [create, party, gestureGames, senses, couple, talk, chill, afterdark];
+const GROUPS = [create, party, gestureGames, senses, couple, talk, chill, afterdark, aiModes];
 
 // Ordering of the menu sections.
-export const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "New senses 🎙️", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
+export const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "New senses 🎙️", "AI ✨", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
 
 // Two non-factory / special entries the app owns directly.
 export const MODE_INFO = {
