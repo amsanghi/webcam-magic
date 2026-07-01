@@ -6,7 +6,7 @@
 // Content + live transforms are synced to the partner over Trystero so they see
 // what you're presenting on your half of the call. Everything stays client-side.
 
-import * as FX from "./effects.js";
+import * as FX from "../fx/effects.js";
 const { W, H, MID, toCanvas } = FX;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 

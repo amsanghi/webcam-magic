@@ -3,7 +3,7 @@
 // enter/exit/update(dt,local,remote)/draw(ctx)/onNet(msg)/action(a).
 // `net.send(obj)` broadcasts to the partner; app routes non-gesture msgs to onNet.
 
-import * as FX from "./effects.js";
+import * as FX from "../fx/effects.js";
 import { createShareMode } from "./share.js";
 const { W, H, MID, toCanvas, rnd, pick } = FX;
 

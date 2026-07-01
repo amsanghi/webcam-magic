@@ -2,10 +2,10 @@
 // couple cross-feed effects, mode/game switching, and Trystero networking.
 import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, ImageSegmenter, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
-import * as FX from "./effects.js";
-import * as G from "./gestures.js";
-import { createGames } from "./games.js";
-import { createVoice } from "./voice.js";
+import * as FX from "./fx/effects.js";
+import * as G from "./perception/gestures.js";
+import { createGames } from "./modes/games.js";
+import { createVoice } from "./perception/voice.js";
 const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
