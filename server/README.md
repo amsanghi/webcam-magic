@@ -45,15 +45,23 @@ The URL is fixed, so do this a single time per device (it's saved + auto-shared 
 
 The pill shows **AI on (server)**. Done forever — you never change this again.
 
-## 3. Switch capability whenever
+## 3. Daily use — ONE command (`wm.sh`)
+You don't run scripts every day: the core services (Ollama, proxy, ngrok, wm-media) are login
+agents that come back on every boot. `wm.sh` is the single control for everything else:
+
 ```bash
-./start.sh heavy    # → dolphin-mixtral:8x7b   (best)
-./start.sh light    # → dolphin3:8b            (frees the Mac; unloads the heavy one)
-./stop.sh           # take the whole server offline (frees all RAM + drops the tunnel)
+./wm.sh             # bring the WHOLE stack up (text+vision, tunnel, voice, images)
+./wm.sh down        # take it all down + free all the RAM
+./wm.sh status      # what's running + your public URL
+./wm.sh heavy       # best text model (dolphin-mixtral:8x7b)
+./wm.sh light       # fast text model (dolphin3:8b) — frees the Mac
+./wm.sh autostart   # ← run ONCE: makes images auto-start on boot too, so you
+                    #   never run any script again
 ```
-Switching takes a couple of seconds; the next message uses the new model — nothing on the website
-changes. `stop.sh` shuts it down (the site then falls back to on-device/static); `start.sh` brings it
-back up (it also returns on its own after a reboot).
+
+The one piece that isn't a login agent by default is the Stable-Diffusion image server; `./wm.sh`
+starts it, and `./wm.sh autostart` turns it into a login agent so the entire stack boots on its own.
+(The older `start.sh` / `stop.sh` still work, but `wm.sh` supersedes them.)
 
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.

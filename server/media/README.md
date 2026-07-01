@@ -17,10 +17,9 @@ cd server/media && ./setup-media.sh
 That installs the `wm-media` login agent (:8189), best-effort installs Piper + whisper.cpp with small voice models, and prints how to stand up the image backend. Images need a Stable-Diffusion server exposing the A1111 API on `:7860`:
 
 ```bash
-git clone https://github.com/vladmandic/sdnext ~/sdnext
-cd ~/sdnext && ./webui.sh --api --listen --port 7860
+git clone https://github.com/vladmandic/sdnext ~/sdnext   # one-time; wm.sh auto-detects ~/sdnext
 ```
-Drop a checkpoint (SDXL is a good default on 32 GB; an uncensored SDXL/Pony checkpoint if you want spicy) into the backend's `models/Stable-diffusion` folder. **Face fidelity** ("looks like *us*"): add the **ReActor** face-swap or **IP-Adapter / InstantID** extension in the SD UI — `wm-media` img2img already keeps likeness at denoise ≈ 0.55.
+Drop a checkpoint (SDXL is a good default on 32 GB; an uncensored SDXL/Pony checkpoint if you want spicy) into the backend's `models/Stable-diffusion` folder. After that you **never launch it by hand** — `../wm.sh` starts it (and `../wm.sh autostart` makes it boot with everything else). No `--api` flags to remember. **Face fidelity** ("looks like *us*"): add the **ReActor** face-swap or **IP-Adapter / InstantID** extension in the SD UI — `wm-media` img2img already keeps likeness at denoise ≈ 0.55.
 
 ## API (what the site calls)
 | Endpoint | Body | Returns |
