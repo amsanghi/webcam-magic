@@ -14,6 +14,7 @@
     <string>11434</string>
     <string>--url</string>
     <string>https://__NGROK_DOMAIN__</string>
+    <string>--host-header=rewrite</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
