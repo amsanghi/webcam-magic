@@ -1,6 +1,6 @@
 // app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
 // couple cross-feed effects, mode/game switching, and Trystero networking.
-import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, FilesetResolver }
+import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, ImageSegmenter, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import * as FX from "./effects.js";
 import * as G from "./gestures.js";
@@ -8,6 +8,7 @@ import { createGames } from "./games.js";
 import { createVoice } from "./voice.js";
 const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
 
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -80,6 +81,8 @@ const host = {
   objects: { want: false, labels: [] },
   // 🧍 body pose — modes set want=true; lm[] = 33 normalized {x,y} landmarks
   pose: { want: false, lm: [] },
+  // 🕳️ body silhouette — modes set want=true; grid[gh×gw] = 1 where you are
+  seg: { want: false, gw: 22, gh: 26, grid: new Uint8Array(22 * 26), count: 0 },
   // 🎤 live audio: level (0..1 loudness) always; pitch (Hz) only when want=true
   audio: { level: 0, pitch: 0, want: false },
   // 🖱️ last tap/click on the canvas, in logical (W×H) coords (mouse or touch)
@@ -461,7 +464,7 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
-  stepObjects(); stepPose();
+  stepObjects(); stepPose(); stepSeg();
   // 👁 global: close your eyes for a moment, then the photo snaps just AFTER you
   // reopen them (so your eyes are open in the shot). Silent — saved to Scrapbook.
   if (eyeCapOn && localG.face.present) {
@@ -532,6 +535,30 @@ function stepPose() {
   if (localVideo.readyState < 2 || localVideo.currentTime === poseLastT) return;
   poseLastT = localVideo.currentTime;
   try { const r = poseLM.detectForVideo(localVideo, performance.now() + 3); host.pose.lm = (r.landmarks && r.landmarks[0]) ? r.landmarks[0].map((p) => ({ x: 1 - p.x, y: p.y })) : []; } catch (_) {}
+}
+// body-silhouette segmenter — lazy (Hole in the Wall). Fills host.seg.grid with a
+// coarse "person here" occupancy map (display-mirrored to match the canvas).
+let segmenter = null, segLoading = false, segLastT = -1;
+async function ensureSeg() { if (segmenter || segLoading) return; segLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); segmenter = await ImageSegmenter.createFromOptions(vision, { baseOptions: { modelAssetPath: SEG_MODEL, delegate: "GPU" }, runningMode: "VIDEO", outputCategoryMask: true, outputConfidenceMasks: false }); } catch (_) {} segLoading = false; }
+function stepSeg() {
+  if (!host.seg.want) return;
+  if (!segmenter) { ensureSeg(); return; }
+  if (localVideo.readyState < 2 || localVideo.currentTime === segLastT) return;
+  segLastT = localVideo.currentTime;
+  try {
+    segmenter.segmentForVideo(localVideo, performance.now() + 5, (res) => {
+      const mask = res.categoryMask; if (!mask) return;
+      const mw = mask.width, mh = mask.height, arr = mask.getAsUint8Array();
+      const gw = host.seg.gw, gh = host.seg.gh, grid = host.seg.grid;
+      let person = 0;
+      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+        const rx = Math.min(mw - 1, Math.floor((1 - (gx + 0.5) / gw) * mw)), ry = Math.min(mh - 1, Math.floor((gy + 0.5) / gh * mh));
+        const v = arr[ry * mw + rx] || 0; const p = v !== 0 ? 1 : 0; grid[gy * gw + gx] = p; person += p;
+      }
+      host.seg.count = person;
+      if (mask.close) mask.close();
+    });
+  } catch (_) {}
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -719,6 +746,7 @@ const MODE_INFO = {
   tilt: { ic: "📱", nm: "Tilt Maze", cat: "New senses 🎙️", how: ["On phones: “enable”, then tilt to roll the ball", "Reach the ring — most in the round wins"] },
   shake: { ic: "📳", nm: "Shake Race", cat: "New senses 🎙️", how: ["On phones: “enable”, then “go”", "Shake your phone the most in 5 seconds"] },
   poseparty: { ic: "🧍", nm: "Pose Party", cat: "New senses 🎙️", how: ["Stand back so your whole body is in frame", "First to strike the called-out pose wins (body tracking)"] },
+  holewall: { ic: "🕳️", nm: "Hole in the Wall", cat: "New senses 🎙️", how: ["Step back so your whole body shows", "A hole shape appears — pose so your silhouette fits before the wall hits!"] },
   flappy: { ic: "🐤", nm: "Mouth Flappy", cat: "New senses 🎙️", how: ["Open your mouth to flap the bird up", "Fly through the pipe gaps — highest score wins"] },
   colorhunt: { ic: "🎨", nm: "Color Hunt", cat: "New senses 🎙️", how: ["“Show me something RED!”", "Hold something that color to your camera — fastest wins"] },
   note: { ic: "🎵", nm: "Match the Note", cat: "New senses 🎙️", how: ["A note plays — hum it back", "Hold the right pitch to score (uses your mic)"] },
@@ -786,6 +814,7 @@ const MODE_ACTIONS = {
   tilt: [["enable", "📱 enable"]], shake: [["enable", "📱 enable"], ["go", "📳 go"]],
   flappy: [["go", "↻ restart"]], colorhunt: [["go", "🎨 go"]], note: [["go", "🎵 new note"]],
   scream: [["go", "📣 go"]], typing: [["go", "⌨️ go"]], tapattack: [["go", "🎯 go"]], lovetap: [["tap", "💓 send"]],
+  holewall: [["go", "🕳️ go"]],
   dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
   charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
   q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
