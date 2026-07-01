@@ -36,10 +36,27 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
-const host = { snapshot: (name) => {
-  canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
-  try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-12))); } catch (_) {}
-} };
+const host = {
+  snapshot: (name) => {
+    canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
+    try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-12))); } catch (_) {}
+  },
+  // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
+  // the whole tab (stops packets), so the partner sees a silent link and reconnects.
+  ask: (label, opts = {}) => new Promise((resolve) => {
+    const wrap = document.createElement("div"); wrap.className = "ask-modal";
+    const field = opts.multiline ? "<textarea rows='6'></textarea>" : "<input type='text' />";
+    wrap.innerHTML = `<div class="ask-card"><label>${label}</label>${field}<div class="ask-row"><button class="ask-cancel">Cancel</button><button class="ask-ok">OK</button></div></div>`;
+    document.body.appendChild(wrap);
+    const f = wrap.querySelector(opts.multiline ? "textarea" : "input");
+    if (opts.value) f.value = opts.value; setTimeout(() => f.focus(), 30);
+    const done = (v) => { wrap.remove(); resolve(v); };
+    wrap.querySelector(".ask-ok").onclick = () => done(f.value);
+    wrap.querySelector(".ask-cancel").onclick = () => done(null);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) done(null); });
+    f.addEventListener("keydown", (e) => { if (e.key === "Enter" && !opts.multiline) done(f.value); if (e.key === "Escape") done(null); });
+  }),
+};
 const games = createGames(net, host);
 
 // =====================================================================
@@ -270,9 +287,9 @@ function refreshAnniv() {
   const days = Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5));
   el.textContent = `💑 ${days} days`;
 }
-function setAnniv() {
+async function setAnniv() {
   const cur = (() => { try { return localStorage.getItem("wm_anniv") || ""; } catch (_) { return ""; } })();
-  const v = prompt("Your anniversary / first date (YYYY-MM-DD):", cur);
+  const v = await host.ask("Your anniversary / first date (YYYY-MM-DD):", { value: cur });
   if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) { try { localStorage.setItem("wm_anniv", v.trim()); } catch (_) {} refreshAnniv(); }
 }
 
