@@ -1532,6 +1532,48 @@ export function createGames(net, host) {
     };
   }
 
+  // 🕳️ HOLE IN THE WALL — pose your body to fit the hole (silhouette segmentation)
+  function holeWallMode() {
+    const SHAPES = [
+      ["⬤ big circle", (x, y) => Math.hypot(x - .5, y - .45) < .34],
+      ["▭ crouch low", (x, y) => y > .5 && Math.abs(x - .5) < .44],
+      ["✝ arms out (T)", (x, y) => (Math.abs(y - .4) < .13 && Math.abs(x - .5) < .46) || (Math.abs(x - .5) < .16 && y > .3)],
+      ["▯ stand tall", (x, y) => Math.abs(x - .5) < .17],
+      ["◆ diamond", (x, y) => Math.abs(x - .5) + Math.abs(y - .45) < .42],
+      ["◤ lean left", (x, y) => x > .06 && x < .5],
+      ["◥ lean right", (x, y) => x > .5 && x < .94],
+    ];
+    let si = 0, phase = "idle", t = 0, my = 0, their = 0, lastFit = 0;
+    const nr = () => { si = Math.floor(Math.random() * SHAPES.length); phase = "approach"; t = 5; };
+    const fitPct = () => { const gw = host.seg.gw, gh = host.seg.gh, grid = host.seg.grid, fn = SHAPES[si][1]; let tot = 0, out = 0; for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) if (grid[gy * gw + gx]) { tot++; if (!fn((gx + .5) / gw, (gy + .5) / gh)) out++; } return tot < 10 ? 0 : 1 - out / tot; };
+    return {
+      enter() { host.seg.want = true; my = 0; their = 0; phase = "idle"; },
+      exit() { host.seg.want = false; },
+      action(a) { if (a === "go") nr(); },
+      onNet(m) { if (m.t === "hw") their = m.s; },
+      update(dt) {
+        if (phase === "approach") { t -= dt; if (t <= 0) { lastFit = fitPct(); if (lastFit > 0.72) { my++; FX.flood(0, W, ["🎉", "✨", "💫"], 34); FX.Sound.chime(); } else FX.Sound.boo(); phase = "result"; t = 2.5; net.send({ t: "hw", s: my }); } }
+        else if (phase === "result") { t -= dt; if (t <= 0) nr(); }
+      },
+      draw(ctx) {
+        const S = mySide, gw = host.seg.gw, gh = host.seg.gh, fn = SHAPES[si][1];
+        if (phase === "approach" || phase === "result") {
+          ctx.save(); ctx.beginPath(); ctx.rect(S * MID, 0, MID, H); ctx.clip();
+          ctx.fillStyle = phase === "result" ? (lastFit > 0.72 ? "rgba(20,80,40,.6)" : "rgba(90,20,30,.6)") : "rgba(20,12,40,.62)"; ctx.fillRect(S * MID, 0, MID, H);
+          ctx.globalCompositeOperation = "destination-out";      // punch the hole → reveals the video behind
+          const cw = MID / gw + 2, ch = H / gh + 2;
+          for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) if (fn((gx + .5) / gw, (gy + .5) / gh)) { const p = toCanvas({ x: (gx + 0.5) / gw, y: (gy + 0.5) / gh }, S); ctx.fillRect(p.x - cw / 2, p.y - ch / 2, cw, ch); }
+          ctx.restore();
+        }
+        scoreboard(ctx, [meIdx() === 0 ? my : their, meIdx() === 0 ? their : my], phase === "approach" ? t : null, "Hole in the Wall 🕳️");
+        if (!host.seg.count && phase !== "idle") pill(ctx, "step back so your whole body shows…", W / 2, H * 0.5, 15);
+        if (phase === "idle") big(ctx, "🕳️ Hole in the Wall", host.seg.count ? "press “go” — fit your body into the hole!" : "loading… step back so you're fully in frame");
+        else if (phase === "approach") big(ctx, "Fit:  " + SHAPES[si][0], "strike the shape before the wall hits! " + Math.ceil(Math.max(0, t)));
+        else big(ctx, lastFit > 0.72 ? "you fit! 🎉" : "squished 😅", Math.round(lastFit * 100) + "% inside the hole");
+      },
+    };
+  }
+
   // 💓 LOVE TAP — buzz your partner's phone
   function loveTapMode() {
     return {
@@ -1591,7 +1633,8 @@ export function createGames(net, host) {
     q36: q36Mode, deeptalk: deepTalkMode, twentyq: twentyQMode, twotruths: twoTruthsMode, story: storyMode, telepathy: telepathyMode,
     vault: vaultMode, connect4: connect4Mode, memory: memoryMode, trivia: triviaMode, howwell: howWellMode, whomore: whoMoreMode, thisorthat: thisOrThatMode, hangman: hangmanMode,
     sayit: sayItMode, decipher: decipherMode, treasure: treasureMode, distance: distanceMode, tilt: tiltMode, shake: shakeMode,
-    poseparty: poseMode, flappy: flappyMode, colorhunt: colorHuntMode, note: noteMode, scream: screamMode, typing: typingMode, tapattack: tapMode, lovetap: loveTapMode };
+    poseparty: poseMode, flappy: flappyMode, colorhunt: colorHuntMode, note: noteMode, scream: screamMode, typing: typingMode, tapattack: tapMode, lovetap: loveTapMode,
+    holewall: holeWallMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
