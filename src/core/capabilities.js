@@ -21,12 +21,19 @@ export function setServer(u) { try { if (u) localStorage.setItem(SERVER_KEY, u.t
 export function getServerModel() { try { return localStorage.getItem(SERVER_MODEL_KEY) || DEFAULT_SERVER_MODEL; } catch (_) { return DEFAULT_SERVER_MODEL; } }
 export function setServerModel(m) { try { if (m) localStorage.setItem(SERVER_MODEL_KEY, m); } catch (_) {} }
 
-/** Ping an OpenAI/Ollama-compatible server (short timeout). true if reachable. */
+// Header set on every server request. `ngrok-skip-browser-warning` bypasses the
+// ngrok free-tier interstitial page (otherwise browser fetches get HTML, not JSON).
+export const SERVER_HEADERS = { "ngrok-skip-browser-warning": "true" };
+
+/** Ping an OpenAI/Ollama-compatible server. true only if it returns real JSON. */
 export async function checkServer(url) {
   if (!url) return false;
   const base = url.replace(/\/$/, "");
-  for (const path of ["/v1/models", "/api/tags"]) {
-    try { const r = await fetch(base + path, { signal: AbortSignal.timeout(2500) }); if (r.ok) return true; } catch (_) {}
+  for (const path of ["/api/tags", "/v1/models"]) {
+    try {
+      const r = await fetch(base + path, { headers: SERVER_HEADERS, signal: AbortSignal.timeout(3500) });
+      if (r.ok) { const j = await r.json().catch(() => null); if (j) return true; }  // must be JSON, not the ngrok HTML page
+    } catch (_) {}
   }
   return false;
 }

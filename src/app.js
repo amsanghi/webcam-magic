@@ -630,7 +630,8 @@ function aiPillClick() {
     <label>🤖 AI — currently: <b>${label}</b></label>
     <label class="dlabel">Home-server URL (from <code>server/start.sh</code>)</label>
     <input type="text" id="aiSrvUrl" placeholder="https://xxxx.trycloudflare.com" autocomplete="off" autocapitalize="off" />
-    <input type="text" id="aiSrvModel" placeholder="model — optional, e.g. dolphin3:8b" autocomplete="off" autocapitalize="off" />
+    <input type="text" id="aiSrvModel" placeholder="model — optional, e.g. active / dolphin3:8b" autocomplete="off" autocapitalize="off" />
+    <div class="dlabel" id="aiMsg" style="min-height:1.2em"></div>
     <div class="ask-row">
       <button class="ask-cancel" id="aiClose">Close</button>
       <button id="aiLoadLocal">Load on-device</button>
@@ -642,8 +643,16 @@ function aiPillClick() {
   const close = () => wrap.remove();
   wrap.querySelector("#aiClose").onclick = close;
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  const msg = wrap.querySelector("#aiMsg");
   wrap.querySelector("#aiLoadLocal").onclick = () => { ai.load(); close(); };
-  wrap.querySelector("#aiUseSrv").onclick = async () => { const u = url.value.trim(); if (!u) return close(); await ai.configure(u, model.value.trim() || undefined); if (inCall) ai.announce(); refreshAiPills(); close(); };
+  wrap.querySelector("#aiUseSrv").onclick = async () => {
+    const u = url.value.trim(); if (!u) return close();
+    msg.textContent = "checking " + u + " …";
+    await ai.configure(u, model.value.trim() || undefined);
+    if (inCall) ai.announce(); refreshAiPills();
+    if (ai.tier === 3) { msg.textContent = "✅ connected — AI on (server)"; setTimeout(close, 800); }
+    else { msg.textContent = "✗ couldn't reach it — is the tunnel + Ollama running? (see the browser console)"; }
+  };
 }
 
 // =====================================================================
