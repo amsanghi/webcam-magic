@@ -119,6 +119,28 @@ export function madLibsMode() {
   };
 }
 
+// ---------------- CUPID SEES — I-Spy powered by the vision model ----------
+// Hold something up / strike a pose / mime, and Cupid actually LOOKS at the call
+// (host.ai.see → the server vision model) and makes a playful guess. Needs the
+// home server (vision); degrades to a friendly nudge otherwise.
+export function iSpyMode() {
+  let line = "hold something up, strike a pose, or mime — press 👁 and I'll guess", busy = false;
+  return {
+    action(a) {
+      if (a === "load") { host.ai.load(); return; }
+      if (a === "look") {
+        if (!host.ai || host.ai.tier !== 3 || !host.ai.see || !host.grabFrame) { line = "turn on your home server (with vision) and I'll actually look 👀"; return; }
+        const img = host.grabFrame(); if (!img) return;
+        busy = true;
+        host.ai.see({ system: "You are Cupid playing I-Spy on a couple's video call. Look at their camera and make ONE warm, specific, playful guess about what they're holding, wearing, or doing. <=16 words, emoji ok, no quotes.", user: "What do you see them doing right now?", image: img, max: 60, temp: 0.85 }, () => "hmm, my eyes went blurry — try again 👀")
+          .then((t) => { busy = false; line = (t || line).trim(); net.send({ t: "ispy", x: line }); if (host.chat) host.chat.say("ai", line); });
+      }
+    },
+    onNet(m) { if (m.t === "ispy") line = m.x; },
+    draw(ctx) { big(ctx, "👁 Cupid Sees", busy ? "👀 looking…" : line); hint(ctx, aiHint()); },
+  };
+}
+
 // ---------------- simple "one line" AI modes ------------------------------
 const TRUTH_FB = ["What's a tiny thing I do that you secretly love? 😏", "Where in the world would you kiss me first when we reunite? ✈️💋", "Rate our chemistry 1–10 and defend it 😉"];
 const WYR_FB = ["Would you rather: a lazy morning in bed, or a wild day out — with me? 😏", "Would you rather text all day or one hour of video every night? 💕", "Would you rather slow-dance in the kitchen or stargaze on a roof? 🌙"];
@@ -142,4 +164,5 @@ export const modes = {
   roast:      { cat: "AI ✨", ic: "🔥", nm: "AI Roast & Toast", how: ["A loving little roast (that's secretly a compliment)", "All in good fun 😤"], actions: [["go", "🔥 roast"], ["load", "⬇ AI"]], make: () => lineMode({ id: "roast", ic: "🔥", title: "Roast & Toast", deck: ROAST_FB, temp: 1.1, sys: "Write ONE affectionate teasing 'roast' of someone's partner that lands as a compliment. Playful, warm, never mean or explicit.", user: () => "Roast my partner lovingly." }) },
   roleplay:   { cat: "AI ✨", ic: "🎭", nm: "Roleplay (AI)", how: ["A fresh scene to act out together", "Press for a new scenario, then improvise 😏"], actions: [["go", "🎭 scene"], ["load", "⬇ AI"]], make: () => lineMode({ id: "roleplay", ic: "🎭", title: "Roleplay", deck: ROLE_FB, temp: 1.1, sys: "Write ONE short, immersive roleplay scene setup for a couple to act out over video — a setting + a vibe in 1-2 sentences, flirty, leaving room to improvise.", user: () => "one roleplay scene" }) },
   rapbattle:  { cat: "AI ✨", ic: "🎤", nm: "Rap Battle (AI)", how: ["Trade AI-written bars and perform them 😎", "Press for your next line"], actions: [["go", "🎤 bar"], ["load", "⬇ AI"]], make: () => lineMode({ id: "rapbattle", ic: "🎤", title: "Rap Battle", deck: RAP_FB, temp: 1.15, sys: "Write ONE short playful rap-battle bar (1-2 lines) for a couple teasing each other — cheeky and clever, never actually mean.", user: () => "one playful rap bar" }) },
+  ispy:       { cat: "AI ✨", ic: "👁", nm: "Cupid Sees", how: ["Hold something up, strike a pose, or mime — press 👁 and Cupid looks & guesses", "Needs your home server with vision (llama3.2-vision)"], actions: [["look", "👁 look"], ["load", "⬇ AI"]], make: iSpyMode },
 };
