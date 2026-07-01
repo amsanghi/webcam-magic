@@ -49,12 +49,11 @@ export function loveCalcMode() {
 // ---------------- DATE SPINNER -------------------------------------------
 export function spinnerMode() {
   const IDEAS = ["cook together 🍳", "stargaze 🌌", "play 20 questions ❓", "watch a movie 🎬", "dance 💃", "order the same food 🍜", "draw each other ✏️", "plan a trip ✈️", "karaoke 🎤", "truth or dare 😈", "make a playlist 🎧", "bake something 🧁"];
-  let phase = "idle", t = 0, idx = 0, shown = "spin for a date idea";
-  const start = (i) => { idx = i; phase = "spin"; t = 1.6; };
+  let phase = "idle", t = 0, result = "", shown = "spin for a date idea";
   return {
-    action(a) { if (a === "spin" && phase !== "spin") { const i = Math.floor(Math.random() * IDEAS.length); start(i); net.send({ t: "spin", idx: i }); } },
-    onNet(m) { if (m.t === "spin") start(m.idx); },
-    update(dt) { if (phase === "spin") { t -= dt; if (t <= 0) { shown = IDEAS[idx]; phase = "done"; FX.flood(0, W, ["🎉", "💕"], 30); FX.Sound.chime(); } else if (t > 0.2) shown = IDEAS[Math.floor(Math.random() * IDEAS.length)]; } },
+    action(a) { if (a === "spin" && phase !== "spin") { phase = "spin"; t = 1.6; result = ""; host.ai.ask({ user: "Suggest ONE creative long-distance date-night idea a couple can do over video tonight. A few words, emoji ok.", max: 24, temp: 1.1 }, () => pick(IDEAS)).then((r) => { result = (r || "").trim() || pick(IDEAS); net.send({ t: "spin", text: result }); }); } },
+    onNet(m) { if (m.t === "spin") { phase = "spin"; t = 1.6; result = m.text; } },
+    update(dt) { if (phase === "spin") { t -= dt; if (t <= 0) { shown = result || pick(IDEAS); phase = "done"; FX.flood(0, W, ["🎉", "💕"], 30); FX.Sound.chime(); if (host.chat && result) host.chat.say("ai", "🎡 " + shown); } else if (t > 0.2) shown = pick(IDEAS); } },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "🎡 " + shown, phase === "done" ? "go do it! 💞" : "press spin"); },
   };
 }

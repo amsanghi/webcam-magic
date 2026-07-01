@@ -376,7 +376,7 @@ export function charadesMode() {
   let isActor = false, word = "", revealed = false;
   return {
     enter() { isActor = false; word = ""; revealed = false; },
-    action(a) { if (a === "new") { isActor = true; word = pick(P); revealed = false; net.send({ t: "char-role" }); } else if (a === "reveal") { revealed = true; net.send({ t: "char-rev", w: word }); } },
+    action(a) { if (a === "new") { isActor = true; revealed = false; word = pick(P); host.ai.ask({ system: "Give ONE fun thing to act out in charades — a person, action, movie, or animal. Just the answer, 1-4 words.", user: "one charades prompt", max: 12, temp: 1.1 }, () => pick(P)).then((w) => { word = (w || "").trim() || pick(P); }); net.send({ t: "char-role" }); } else if (a === "reveal") { revealed = true; net.send({ t: "char-rev", w: word }); } },
     onNet(m) { if (m.t === "char-role") { isActor = false; word = ""; revealed = false; } else if (m.t === "char-rev") { word = m.w; revealed = true; } },
     draw(ctx) { if (isActor && !revealed) big(ctx, "Act out: " + word, "no talking — use gestures & face!"); else if (revealed) big(ctx, "it was: " + word + " 🎉", ""); else big(ctx, "🎭 Charades", "your partner is acting — guess out loud!"); hint(ctx, "“new prompt” to be the actor • “reveal” the answer"); },
   };
