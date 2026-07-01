@@ -46,14 +46,14 @@ GitHub Pages is https, so the server needs an https URL. Pick one (no port-forwa
 Leave the tunnel running while you use the app.
 
 ## 3. Point the site at it
-Open the site, then in the browser **console** (once — it's saved in localStorage and auto-shared to
-your partner over the call):
-```js
-wmAI.configure("https://your-url-from-step-2")
-// optional: pick a model you pulled
-wmAI.configure("https://your-url", "dolphin3:8b")
-```
-The **✨ AI** pill will flip to **"AI on (server)"**. Done — both of you now use your Mac's model.
+Pick whichever is easier — the URL is saved and **auto-shared to your partner over the call**, so only one of you sets it:
+
+- **On a phone (or anywhere) — tap the ✨ AI pill** (top bar) → paste the URL into "Home-server URL" → **Use server**. No console needed.
+- **A link (zero typing):** open the site with the URL baked in — great to text to yourself/her:
+  `https://amsanghi.github.io/webcam-magic/?ai=https://your-url-from-step-2`  (add `&aimodel=dolphin3:8b` to pick a model)
+- **Desktop console:** `wmAI.configure("https://your-url-from-step-2")` (optional 2nd arg = model).
+
+The **✨ AI** pill flips to **"AI on (server)"**. Done — both of you now use your Mac's model.
 
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or run a small `faster-whisper` server; the

@@ -620,10 +620,30 @@ function refreshAiPills() {
   if (a) { a.textContent = aiPillText(false); a.classList.toggle("on", ready); }
   if (b) { b.textContent = aiPillText(true); b.classList.toggle("on", ready); }
 }
+// tappable AI settings (phone-friendly — no console needed): paste a home-server
+// URL, or load the on-device model. Server URL persists + auto-shares to partner.
 function aiPillClick() {
   const ai = host.ai; if (!ai) return;
-  if (ai.amGenerator()) { ai.load(); if (host.chat) host.chat.say("sys", "loading the AI model — first time only (~" + (Math.round((ai.approxMB || 0) / 100) / 10) + " GB), then it's cached."); }
-  else if (ai.tier === 0) { if (host.chat) host.chat.say("sys", "This device can't run the model (needs WebGPU). Your partner's device generates, or use the classic decks."); }
+  const label = ai.tier === 3 ? "home server ✅" : ai.tier === 2 ? "on-device (powerhouse)" : ai.tier === 1 ? "on-device (light)" : "off / static decks";
+  const wrap = document.createElement("div"); wrap.className = "ask-modal";
+  wrap.innerHTML = `<div class="ask-card">
+    <label>🤖 AI — currently: <b>${label}</b></label>
+    <label class="dlabel">Home-server URL (from <code>server/start.sh</code>)</label>
+    <input type="text" id="aiSrvUrl" placeholder="https://xxxx.trycloudflare.com" autocomplete="off" autocapitalize="off" />
+    <input type="text" id="aiSrvModel" placeholder="model — optional, e.g. dolphin3:8b" autocomplete="off" autocapitalize="off" />
+    <div class="ask-row">
+      <button class="ask-cancel" id="aiClose">Close</button>
+      <button id="aiLoadLocal">Load on-device</button>
+      <button id="aiUseSrv">Use server</button>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const url = wrap.querySelector("#aiSrvUrl"), model = wrap.querySelector("#aiSrvModel");
+  try { url.value = ai.serverUrl || localStorage.getItem("wm_ai_server") || ""; } catch (_) {}
+  const close = () => wrap.remove();
+  wrap.querySelector("#aiClose").onclick = close;
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector("#aiLoadLocal").onclick = () => { ai.load(); close(); };
+  wrap.querySelector("#aiUseSrv").onclick = async () => { const u = url.value.trim(); if (!u) return close(); await ai.configure(u, model.value.trim() || undefined); if (inCall) ai.announce(); refreshAiPills(); close(); };
 }
 
 // =====================================================================
@@ -696,6 +716,12 @@ function buildDebug() {
     box.appendChild(row);
   }
 }
+
+// phone-friendly: a link like ?ai=https://your-tunnel-url configures the home
+// server with no console needed (persisted; runs before ai.init() reads it).
+const _q = new URL(location.href).searchParams;
+if (_q.get("ai")) { try { localStorage.setItem("wm_ai_server", _q.get("ai")); } catch (_) {} }
+if (_q.get("aimodel")) { try { localStorage.setItem("wm_ai_server_model", _q.get("aimodel")); } catch (_) {} }
 
 const pre = new URL(location.href).searchParams.get("room");
 if (pre) { $("roomInput").value = pre; $("copyLinkBtn").classList.remove("hidden"); }
