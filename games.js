@@ -729,6 +729,7 @@ export function createGames(net, host) {
         if (a === "prev") idx = Math.max(0, idx - 1);
         else if (a === "next") idx = Math.min(imgs.length - 1, idx + 1);
         else if (a === "save") { const im = imgs[idx]; if (im && im.src) { const el = document.createElement("a"); el.href = im.src; el.download = "webcam-magic-" + (idx + 1) + ".jpg"; el.click(); } }
+        else if (a === "all") { imgs.forEach((im, k) => { if (im && im.src) setTimeout(() => { const el = document.createElement("a"); el.href = im.src; el.download = "webcam-magic-" + (k + 1) + ".jpg"; el.click(); }, k * 250); }); }
         else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} if (host && host.moments) host.moments.length = 0; imgs = []; idx = 0; }
       },
       draw(ctx) {
@@ -1275,6 +1276,111 @@ export function createGames(net, host) {
     };
   }
 
+  // ================= NEW SENSES (voice / objects / phone sensors) =========
+  // 🗣️ SAY IT FIRST — first to SAY the word out loud (Web Speech API)
+  function sayItMode() {
+    const WORDS = ["banana", "pizza", "dragon", "sunshine", "kangaroo", "chocolate", "umbrella", "penguin", "rainbow", "butterfly", "spaghetti", "dinosaur", "coconut", "avocado"];
+    let target = "", phase = "idle", score = [0, 0], winner = -1, claimed = false, t = 0;
+    const bcast = () => net.send({ t: "sf", tg: target, s: score, w: winner, ph: phase });
+    const newRound = () => { target = pick(WORDS); phase = "go"; winner = -1; claimed = false; t = 8; bcast(); };
+    const declare = (w) => { if (winner >= 0) return; winner = w; score[w]++; phase = "done"; t = 3; FX.confetti(w === 0 ? W / 4 : 3 * W / 4, H / 2, 20); FX.Sound.chime(); bcast(); };
+    const heard = (text) => { if (phase !== "go" || claimed) return; if (target && text.includes(target)) { claimed = true; if (authority) declare(0); else net.send({ t: "sf-said" }); } };
+    return {
+      enter() { score = [0, 0]; phase = "idle"; if (host.voice.supported) host.voice.start(heard); },
+      exit() { host.voice.stop(); },
+      action(a) { if (a === "go") { if (authority) newRound(); else net.send({ t: "sf-start" }); } },
+      onNet(m) { if (m.t === "sf") { target = m.tg; score = m.s; winner = m.w; phase = m.ph; claimed = m.ph !== "go"; } else if (m.t === "sf-said" && authority) declare(1); else if (m.t === "sf-start" && authority) newRound(); },
+      update(dt) { if (!authority) return; if (phase === "go") { t -= dt; if (t <= 0) { phase = "done"; t = 3; bcast(); } } else if (phase === "done") { t -= dt; if (t <= 0) newRound(); } },
+      draw(ctx) { scoreboard(ctx, score, null, "Say It First"); if (!host.voice.supported) return big(ctx, "🎤 use Chrome/Edge", "voice recognition isn't available in this browser"); if (phase === "idle") big(ctx, "🗣️ Say It First", "press “go” — first to SAY the word wins"); else if (phase === "go") big(ctx, "Say:  " + target, "🎤 out loud, fast!"); else big(ctx, winner < 0 ? "nobody 😅" : (winner === meIdx() ? "You said it! 🗣️" : "Partner said it"), ""); },
+    };
+  }
+
+  // 🧩 DECIPHER — first to SAY the answer to a riddle/scramble
+  function decipherMode() {
+    const P = [{ c: "unscramble:  ZAPIZ", a: "pizza" }, { c: "unscramble:  NOMEL", a: "lemon" }, { c: "I have keys but open no locks…", a: "keyboard" }, { c: "Roses are red, violets are ___", a: "blue" }, { c: "What has hands but cannot clap?", a: "clock" }, { c: "unscramble:  TETUBRFLY", a: "butterfly" }, { c: "unscramble:  NGODAR", a: "dragon" }, { c: "The more of it you take, the more you leave behind", a: "footsteps" }, { c: "What gets wetter the more it dries?", a: "towel" }];
+    let cur = null, phase = "idle", score = [0, 0], winner = -1, claimed = false, t = 0;
+    const bcast = () => net.send({ t: "dc", c: cur, s: score, w: winner, ph: phase });
+    const newRound = () => { cur = pick(P); phase = "go"; winner = -1; claimed = false; t = 15; bcast(); };
+    const declare = (w) => { if (winner >= 0) return; winner = w; score[w]++; phase = "done"; t = 4; FX.confetti(w === 0 ? W / 4 : 3 * W / 4, H / 2, 24); FX.Sound.chime(); bcast(); };
+    const heard = (text) => { if (phase !== "go" || claimed || !cur) return; if (text.includes(cur.a)) { claimed = true; if (authority) declare(0); else net.send({ t: "dc-said" }); } };
+    return {
+      enter() { score = [0, 0]; phase = "idle"; if (host.voice.supported) host.voice.start(heard); },
+      exit() { host.voice.stop(); },
+      action(a) { if (a === "go") { if (authority) newRound(); else net.send({ t: "dc-start" }); } },
+      onNet(m) { if (m.t === "dc") { cur = m.c; score = m.s; winner = m.w; phase = m.ph; claimed = m.ph !== "go"; } else if (m.t === "dc-said" && authority) declare(1); else if (m.t === "dc-start" && authority) newRound(); },
+      update(dt) { if (!authority) return; if (phase === "go") { t -= dt; if (t <= 0) { phase = "done"; t = 4; bcast(); } } else if (phase === "done") { t -= dt; if (t <= 0) newRound(); } },
+      draw(ctx) { scoreboard(ctx, score, null, "Decipher"); if (!host.voice.supported) return big(ctx, "🎤 use Chrome/Edge", "voice recognition isn't available in this browser"); if (phase === "idle") big(ctx, "🧩 Decipher", "press “go” — SAY the answer first"); else if (phase === "go") big(ctx, cur.c, "🎤 say your answer!"); else big(ctx, winner < 0 ? ("it was “" + cur.a + "” 😅") : (winner === meIdx() ? "You got it! 🧩" : "Partner got it"), ""); },
+    };
+  }
+
+  // 🔍 TREASURE HUNT — first to show the object to your camera (object detection)
+  function treasureMode() {
+    const T = [["🍌", "banana"], ["☕", "cup"], ["📱", "cell phone"], ["📖", "book"], ["🍾", "bottle"], ["✂️", "scissors"], ["🥄", "spoon"], ["🪑", "chair"], ["🧸", "teddy bear"], ["🕐", "clock"], ["🍎", "apple"], ["🎒", "backpack"]];
+    let ti = 0, phase = "idle", score = [0, 0], winner = -1, claimed = false, t = 0;
+    const bcast = () => net.send({ t: "th", i: ti, s: score, w: winner, ph: phase });
+    const newRound = () => { ti = Math.floor(Math.random() * T.length); phase = "go"; winner = -1; claimed = false; t = 20; bcast(); };
+    const declare = (w) => { if (winner >= 0) return; winner = w; score[w]++; phase = "done"; t = 4; FX.confetti(w === 0 ? W / 4 : 3 * W / 4, H / 2, 26); FX.Sound.chime(); bcast(); };
+    return {
+      enter() { score = [0, 0]; phase = "idle"; host.objects.want = true; },
+      exit() { host.objects.want = false; },
+      action(a) { if (a === "go") { if (authority) newRound(); else net.send({ t: "th-start" }); } },
+      onNet(m) { if (m.t === "th") { ti = m.i; score = m.s; winner = m.w; phase = m.ph; claimed = m.ph !== "go"; } else if (m.t === "th-found" && authority) declare(1); else if (m.t === "th-start" && authority) newRound(); },
+      update(dt) {
+        if (phase === "go" && !claimed && (host.objects.labels || []).includes(T[ti][1])) { claimed = true; if (authority) declare(0); else net.send({ t: "th-found" }); }
+        if (!authority) return; if (phase === "go") { t -= dt; if (t <= 0) { phase = "done"; t = 4; bcast(); } } else if (phase === "done") { t -= dt; if (t <= 0) newRound(); }
+      },
+      draw(ctx) { scoreboard(ctx, score, phase === "go" ? t : null, "Treasure Hunt 🔍"); if (phase === "idle") big(ctx, "🔍 Treasure Hunt", host.objects.labels ? "press “go” — grab the object fastest!" : "loading object detector…"); else if (phase === "go") big(ctx, "Bring me:  " + T[ti][0] + " " + T[ti][1], "show it to your camera! 📸"); else big(ctx, winner < 0 ? "nobody found it 😅" : (winner === meIdx() ? "You found it! 🏆" : "Partner found it"), ""); },
+    };
+  }
+
+  // 🌍 DISTANCE — how far apart are we (GPS)
+  function distanceMode() {
+    let meLoc = null, them = null, km = null, err = "";
+    const hav = (a, b) => { const R = 6371, tr = (x) => x * Math.PI / 180; const dLat = tr(b.lat - a.lat), dLon = tr(b.lon - a.lon); const s = Math.sin(dLat / 2) ** 2 + Math.cos(tr(a.lat)) * Math.cos(tr(b.lat)) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); };
+    const calc = () => { if (meLoc && them) km = hav(meLoc, them); };
+    return {
+      async enter() { meLoc = null; them = null; km = null; err = ""; meLoc = await host.geo(); if (meLoc) net.send({ t: "geo", lat: +meLoc.lat.toFixed(3), lon: +meLoc.lon.toFixed(3) }); else err = "location blocked"; calc(); },
+      onNet(m) { if (m.t === "geo") { them = { lat: m.lat, lon: m.lon }; calc(); if (meLoc) net.send({ t: "geo", lat: +meLoc.lat.toFixed(3), lon: +meLoc.lon.toFixed(3) }); } },
+      draw(ctx) { if (err) return big(ctx, "🌍 " + err, "allow location to see the distance"); if (km == null) return big(ctx, "🌍 Distance", them ? "getting your location…" : "waiting for both locations…"); big(ctx, `${Math.round(km).toLocaleString()} km apart`, `≈ ${Math.round(km * 0.621).toLocaleString()} miles — but always close at heart 💞`); },
+    };
+  }
+
+  // 📱 TILT MAZE — tilt your phone to roll the ball to the ring
+  function tiltMode() {
+    let ball = { x: .5, y: .5, vx: 0, vy: 0 }, target = { x: .3, y: .3 }, my = 0, their = 0, bc = 0;
+    const nt = () => { target = { x: rnd(.15, .85), y: rnd(.15, .85) }; };
+    return {
+      enter() { ball = { x: .5, y: .5, vx: 0, vy: 0 }; my = 0; their = 0; nt(); },
+      action(a) { if (a === "enable") host.requestSensors(); },
+      onNet(m) { if (m.t === "tilt") their = m.s; },
+      update(dt) {
+        const gx = (host.sensors.gamma || 0) / 45, gy = ((host.sensors.beta || 0) - 40) / 45;
+        ball.vx += gx * dt * 0.9; ball.vy += gy * dt * 0.9; ball.vx *= 0.9; ball.vy *= 0.9;
+        ball.x = clamp(ball.x + ball.vx * dt, .05, .95); ball.y = clamp(ball.y + ball.vy * dt, .05, .95);
+        if (Math.hypot(ball.x - target.x, ball.y - target.y) < .08) { my++; nt(); FX.sparkleAt(mySide === 0 ? W * .25 : W * .75, H * .5, 8); FX.Sound.pop(); }
+        bc += dt; if (bc > .25) { bc = 0; net.send({ t: "tilt", s: my }); }
+      },
+      draw(ctx) {
+        const bp = toCanvas(ball, mySide), tp = toCanvas(target, mySide);
+        ctx.save(); ctx.strokeStyle = "#7cff9d"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(tp.x, tp.y, 26, 0, 7); ctx.stroke(); ctx.fillStyle = "#ffd24b"; ctx.beginPath(); ctx.arc(bp.x, bp.y, 20, 0, 7); ctx.fill(); ctx.restore();
+        scoreboard(ctx, [meIdx() === 0 ? my : their, meIdx() === 0 ? their : my], null, "Tilt Maze 📱");
+        hint(ctx, host.sensors.on ? "tilt your phone to roll into the ring" : "press “enable” (phones), then tilt");
+      },
+    };
+  }
+
+  // 📳 SHAKE RACE — shake your phone the most in 5s
+  function shakeMode() {
+    let phase = "idle", t = 0, my = 0, their = 0, cool = 0;
+    return {
+      enter() { phase = "idle"; my = 0; their = 0; },
+      action(a) { if (a === "enable") host.requestSensors(); else if (a === "go") { phase = "race"; t = 5; my = 0; net.send({ t: "shk-go" }); } },
+      onNet(m) { if (m.t === "shk-go") { phase = "race"; t = 5; my = 0; } else if (m.t === "shk") their = m.s; },
+      update(dt) { if (phase === "race") { t -= dt; cool -= dt; if ((host.sensors.shake || 0) > 28 && cool <= 0) { my++; cool = 0.18; FX.sparkleAt(mySide === 0 ? W * .25 : W * .75, H * .5, 6); net.send({ t: "shk", s: my }); } if (t <= 0) { phase = "done"; t = 3; } } else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; } },
+      draw(ctx) { scoreboard(ctx, [meIdx() === 0 ? my : their, meIdx() === 0 ? their : my], phase === "race" ? t : null, "Shake Race 📳"); if (phase === "idle") big(ctx, "📳 Shake Race", "“enable” (phones) then “go” — shake fastest!"); else if (phase === "race") big(ctx, "SHAKE! 📳", "go go go"); else big(ctx, my > their ? "You win! 🎉" : my < their ? "Partner wins" : "tie!", ""); },
+    };
+  }
+
   // ---- shared UI helpers (consistent contrast, panels & alignment) --------
   function roundRect(ctx, x, y, w, h, r) {
     if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
@@ -1324,7 +1430,8 @@ export function createGames(net, host) {
     target: targetTrackMode, simon: simonMode, balloon: balloonMode, reaction: reactionMode,
     winkbattle: winkBattleMode, charades: charadesMode, freeze: freezeMode, rhythm: rhythmMode, wish: wishMode, handsup: handsUpMode,
     q36: q36Mode, deeptalk: deepTalkMode, twentyq: twentyQMode, twotruths: twoTruthsMode, story: storyMode, telepathy: telepathyMode,
-    vault: vaultMode, connect4: connect4Mode, memory: memoryMode, trivia: triviaMode, howwell: howWellMode, whomore: whoMoreMode, thisorthat: thisOrThatMode, hangman: hangmanMode };
+    vault: vaultMode, connect4: connect4Mode, memory: memoryMode, trivia: triviaMode, howwell: howWellMode, whomore: whoMoreMode, thisorthat: thisOrThatMode, hangman: hangmanMode,
+    sayit: sayItMode, decipher: decipherMode, treasure: treasureMode, distance: distanceMode, tilt: tiltMode, shake: shakeMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();

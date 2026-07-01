@@ -1,10 +1,12 @@
 // app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
 // couple cross-feed effects, mode/game switching, and Trystero networking.
-import { HandLandmarker, FaceLandmarker, FilesetResolver }
+import { HandLandmarker, FaceLandmarker, ObjectDetector, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import * as FX from "./effects.js";
 import * as G from "./gestures.js";
 import { createGames } from "./games.js";
+import { createVoice } from "./voice.js";
+const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -70,6 +72,20 @@ const host = {
     wrap.addEventListener("click", (e) => { if (e.target === wrap) done(null); });
     f.addEventListener("keydown", (e) => { if (e.key === "Enter" && !opts.multiline) done(f.value); if (e.key === "Escape") done(null); });
   }),
+  // 🗣️ voice-to-text (Web Speech API)
+  voice: createVoice(),
+  // 🔍 object detection — modes set want=true to have the loop populate labels[]
+  objects: { want: false, labels: [] },
+  // 📱 phone sensors + 🌍 GPS
+  sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
+  requestSensors: async () => {
+    try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission(); } catch (_) {}
+    try { if (window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission(); } catch (_) {}
+    if (host.sensors.on) return; host.sensors.on = true;
+    window.addEventListener("deviceorientation", (e) => { host.sensors.beta = e.beta || 0; host.sensors.gamma = e.gamma || 0; });
+    window.addEventListener("devicemotion", (e) => { const a = e.accelerationIncludingGravity || {}; host.sensors.shake = Math.abs(a.x || 0) + Math.abs(a.y || 0) + Math.abs(a.z || 0); });
+  },
+  geo: () => new Promise((res) => { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude }), () => res(null), { timeout: 8000, maximumAge: 60000 }); }),
 };
 const games = createGames(net, host);
 
@@ -421,6 +437,7 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
+  stepObjects();
   // 👁 global: close your eyes for a moment, then the photo snaps just AFTER you
   // reopen them (so your eyes are open in the shot). Silent — saved to Scrapbook.
   if (eyeCapOn && localG.face.present) {
@@ -471,6 +488,16 @@ async function initModels() {
   const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
   handLM = await HandLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: HAND_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numHands: 2 });
   faceLM = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
+}
+// object detector loaded lazily (only when a mode wants it — e.g. Treasure Hunt)
+let objDet = null, odLoading = false, odLastT = -1;
+async function ensureObjDet() { if (objDet || odLoading) return; odLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); objDet = await ObjectDetector.createFromOptions(vision, { baseOptions: { modelAssetPath: OD_MODEL, delegate: "GPU" }, scoreThreshold: 0.45, maxResults: 6, runningMode: "VIDEO" }); } catch (_) {} odLoading = false; }
+function stepObjects() {
+  if (!host.objects.want) return;
+  if (!objDet) { ensureObjDet(); return; }
+  if (localVideo.readyState < 2 || localVideo.currentTime === odLastT) return;
+  odLastT = localVideo.currentTime;
+  try { const r = objDet.detectForVideo(localVideo, performance.now() + 2); host.objects.labels = (r.detections || []).map((d) => d.categories[0] && d.categories[0].categoryName).filter(Boolean); } catch (_) {}
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -651,6 +678,12 @@ const MODE_INFO = {
   whomore: { ic: "⚖️", nm: "Who's More Likely", cat: "Talk & connect 💬", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"] },
   thisorthat: { ic: "🔀", nm: "This or That", cat: "Talk & connect 💬", how: ["Quick-fire preferences", "Pick ☝️ left / ✌️ right — build a match streak"] },
   hangman: { ic: "🔡", nm: "Hangman", cat: "Talk & connect 💬", how: ["One sets a secret word", "The other guesses letters before the hearts run out"] },
+  sayit: { ic: "🗣️", nm: "Say It First", cat: "New senses 🎙️", how: ["A word appears — first to SAY it out loud wins", "Uses your mic (Chrome/Edge)"] },
+  decipher: { ic: "🧩", nm: "Decipher", cat: "New senses 🎙️", how: ["A riddle/scramble appears", "First to SAY the answer wins (mic)"] },
+  treasure: { ic: "🔍", nm: "Treasure Hunt", cat: "New senses 🎙️", how: ["“Bring me a banana!” — grab the object & show your camera", "First to show it wins (object recognition)"] },
+  distance: { ic: "🌍", nm: "Distance", cat: "New senses 🎙️", how: ["Both allow location", "See exactly how far apart you are 🥺 (only shared with each other)"] },
+  tilt: { ic: "📱", nm: "Tilt Maze", cat: "New senses 🎙️", how: ["On phones: “enable”, then tilt to roll the ball", "Reach the ring — most in the round wins"] },
+  shake: { ic: "📳", nm: "Shake Race", cat: "New senses 🎙️", how: ["On phones: “enable”, then “go”", "Shake your phone the most in 5 seconds"] },
   kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
   mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
   lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
@@ -694,7 +727,7 @@ const FEATURES = [
   ["circle", "🔮", "Orb", "Make a circle with both hands → a glowing orb"],
   ["squish", "🤏", "Cheek Squish", "Cup your face with both hands → squiish"],
 ];
-const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
+const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "New senses 🎙️", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
 for (const [id, ic, nm, how] of FEATURES) MODE_INFO["fx:" + id] = { ic, nm, cat: "Single effects 🎯", how: [how, "It's the only effect on — everything else is off."] };
 const MODE_ACTIONS = {
   share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
@@ -706,7 +739,9 @@ const MODE_ACTIONS = {
   pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
   karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
   oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
-  scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
+  scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["all", "⬇ all"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
+  sayit: [["go", "🗣️ go"]], decipher: [["go", "🧩 go"]], treasure: [["go", "🔍 go"]],
+  tilt: [["enable", "📱 enable"]], shake: [["enable", "📱 enable"], ["go", "📳 go"]],
   dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
   charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
   q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
