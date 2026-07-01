@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent: permanent ngrok tunnel to Ollama on your STATIC domain, so the
+     public https URL never changes. setup.sh substitutes __NGROK_DOMAIN__ and
+     installs this to ~/Library/LaunchAgents. Authtoken comes from
+     `ngrok config add-authtoken` (~/.config/ngrok/ngrok.yml). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.webcam-magic.ngrok</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/ngrok</string>
+    <string>http</string>
+    <string>11434</string>
+    <string>--url</string>
+    <string>https://__NGROK_DOMAIN__</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/amansanghi</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/webcam-magic-ngrok.log</string>
+  <key>StandardErrorPath</key><string>/tmp/webcam-magic-ngrok.log</string>
+</dict>
+</plist>
