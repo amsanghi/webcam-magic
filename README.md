@@ -149,13 +149,19 @@ shape, the authority/side model, and the full `host` API.
 The **AI ✨** modes run a language model **in the browser** (WebGPU) — no API keys, no server,
 nothing leaves your devices. It's fully compatible with the static GitHub Pages host: the engine
 is an ES module from a CDN and the model weights download client-side from HuggingFace/MLC and are
-then cached. Three auto-detected tiers:
+then cached. Four auto-detected tiers (best → worst, graceful degradation):
 
 | Tier | Device | Engine + model | 
 | --- | --- | --- |
-| **0 Static** | anything (no WebGPU / opted out) | none — hand-written fallback decks, instant, offline |
-| **1 Light** | iPhone / basic laptop w/ WebGPU | transformers.js + Qwen2.5-0.5B (~400 MB) |
+| **3 Server** | your Mac running a home AI server | Ollama (text + vision), shared to both of you anywhere — see [server/README.md](server/README.md) |
 | **2 Powerhouse** | desktop Chrome/Edge + WebGPU + memory | WebLLM + Llama-3.1-8B (~4.6 GB) |
+| **1 Light** | iPhone / basic laptop w/ WebGPU | transformers.js + Qwen2.5-0.5B (~400 MB) |
+| **0 Static** | anything (no WebGPU / opted out) | none — hand-written fallback decks, instant, offline |
+
+**Home server (top tier):** run one strong model on your Mac and both of you (and your phones,
+from anywhere) call into it over an https tunnel. A reachable server beats everything and is
+auto-shared to your partner over the data channel. Set it up in [server/README.md](server/README.md);
+point the site at it once with `wmAI.configure("https://your-url")` in the console.
 
 **Powerhouse → receiver:** the peers exchange their tier; the higher-tier device becomes the
 *generator*, runs the model, and broadcasts only the resulting **text** over the existing data

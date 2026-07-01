@@ -60,6 +60,9 @@ const aiTools = {
 };
 const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
 host.ai = ai;
+// console helper to point the app at your home AI server (see server/README.md):
+//   wmAI.configure("https://your-tunnel-url")   — then it becomes the top tier.
+window.wmAI = ai;
 
 // ---- chat dock: inline input (replaces the old modal) + AI companion + voice.
 // Typing in ANY mode: if the mode handles it (games.onChat) use that, else it's
@@ -607,7 +610,7 @@ function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "
 // ✨ AI status pill (menu + play). Shows tier/load state; click loads the model.
 function aiPillText(short) {
   const ai = host.ai; if (!ai || !ai.tier) return short ? "✨" : "✨ AI: off";
-  if (ai.status === "ready") return short ? "✨ on" : `✨ AI on (${ai.tier === 2 ? "power" : "light"})`;
+  if (ai.status === "ready") return short ? "✨ on" : `✨ AI on (${ai.tier === 3 ? "server" : ai.tier === 2 ? "power" : "light"})`;
   if (ai.status === "loading") return "✨ " + Math.round((ai.progress || 0) * 100) + "%";
   return ai.available() ? (short ? "✨ load" : "✨ load AI") : (short ? "✨" : "✨ AI");
 }
