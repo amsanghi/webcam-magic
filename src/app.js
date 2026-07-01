@@ -34,7 +34,7 @@ let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH sc
 let soloFx = null;              // when set, Free play runs only this one feature
 let eyeCapOn = true; try { eyeCapOn = localStorage.getItem("wm_eyecap") !== "0"; } catch (_) {}   // default ON, remembered
 let eyeClosedT = 0, eyeArmed = false, eyeReopen = -1, snapCount = 0;   // "close eyes to snap"
-let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
+let frame = 0, lastVideoTime = -1;
 let combo = 0;
 
 let localG = G.blankState(), remoteG = G.blankState();
@@ -68,8 +68,6 @@ function detectLocal(dt) {
 const edges = {};
 function edge(key, cond, fn) { if (cond && !edges[key]) fn(); edges[key] = cond; }
 const squishTarget = [0, 0];
-
-const FACE_SMILE = ["✨", "⭐", "💫", "🌟", "🌸"];
 
 function sideEffects(g, side, dt) {
   if (!fxOn) return;
@@ -257,15 +255,7 @@ function handleFreeNet(m) {
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
   else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
   else if (m.t === "buzz") { try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch (_) {} FX.banner(W / 2, H * 0.3, "💓 love tap!"); FX.flood(0, W, ["💓", "💗"], 14); FX.Sound.pop(); }
-  else if (m.t === "ritual") doRitual(m.kind, false);
 }
-function doRitual(kind, send) {
-  const map = { morning: ["good morning ☀️", ["☀️", "🌻", "✨"], "sun"], afternoon: ["hey you ☀️", ["😊", "💕", "✨"], "sun"], night: ["good night 🌙", ["🌙", "⭐", "💫"], "stars"] };
-  const r = map[kind] || map.morning;
-  FX.banner(W / 2, H * 0.3, r[0]); FX.flood(0, W, r[1], 24); FX.setWeather(r[2], 0.7); FX.Sound.chime();
-  if (send) net.send({ t: "ritual", kind });
-}
-function sendRitual() { const h = new Date().getHours(); doRitual(h < 12 ? "morning" : h < 18 ? "afternoon" : "night", true); }
 function fireConfetti() { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); FX.Sound.chime(); net.send({ t: "confetti" }); }
 
 // 💑 days-together counter

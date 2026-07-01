@@ -1,19 +1,14 @@
 // afterdark.js — After-dark (flirty, never explicit): truth or dare, pick-up lines, dare roulette, lovers' dice, would-you-rather, never have I ever.
 import { FX, net, host, authority, meIdx, W, H, MID, toCanvas, rnd, pick, clamp, cursor, cursorPx, activeCur, roundRect, pill, outline, fit, hint, scoreboard, big } from "./_shared.js";
 
-const adult = true;   // flirty deck always on (cleaned up later)
-
-
 // ---------------- TRUTH OR DARE ------------------------------------------
 export function truthDareMode() {
-  const TRUTH = ["What did you first notice about me? 😏", "Favorite memory of us? 💭", "Most embarrassing crush? 🙈", "What do you miss most right now? 🥺", "One thing you've never told me? 🤫", "Describe me in 3 words 💬", "Dream date? ✨", "Who said 'I love you' in your head first? 💘"];
-  const DARE = ["Send a flying kiss 😘", "Best dance move, go 💃", "Silliest face 🤪", "Sing 5 seconds of a song 🎤", "Show your last photo 📷", "3 air high-fives 🙌", "Wink at the camera 😉", "Say 'I love you' in a funny voice 💕"];
-  // flirtier deck unlocked by the 18+ toggle (suggestive, not explicit)
+  // flirty deck (suggestive, never explicit)
   const TRUTH_A = ["Where do you most want to be kissed? 😏", "What outfit of mine drives you crazy? 👀", "Describe your ideal cuddle… in detail 🫠", "What's the first thing you'd do if I walked in right now? 😉", "Rate our last kiss 1–10 😘", "Big spoon or little spoon — and why? 😌", "What's something you've been wanting to try with me? 😏", "Where's the first place you'd kiss me? 💋", "What were you thinking last time you looked at me like that? 👀", "What's your favorite thing about how I look right now? 🔥", "Lights on or off? 🌙😏", "What outfit do you secretly want to peel me out of… of the ones you've seen? 👀"];
   const DARE_A = ["Blow a slow kiss 😘", "Bite your lip at the camera 😏", "Whisper something only I'd want to hear 🤫", "Give the camera your most kissable face 💋", "Slow wink + a 'come here' finger 😉", "Trace a slow heart on your lips 💋", "Do your most charming 'miss you' eyes 🥺😏", "Send a 3-second slow-motion kiss 💋", "Give a flirty over-the-shoulder look 😏", "Show me where you'd want my hand right now (keep it classy 😏)", "Undo one button / push up a sleeve 😉", "Strike your most confident pose 🔥"];
   let text = "press truth or dare", kind = "";
   return {
-    action(a) { if (a === "truth") { kind = "truth"; text = pick(adult ? TRUTH_A : TRUTH); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(adult ? DARE_A : DARE); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
+    action(a) { if (a === "truth") { kind = "truth"; text = pick(TRUTH_A); net.send({ t: "td", kind, text }); } if (a === "dare") { kind = "dare"; text = pick(DARE_A); net.send({ t: "td", kind, text }); FX.flood(0, W, ["🔥"], 14); } },
     onNet(m) { if (m.t === "td") { kind = m.kind; text = m.text; FX.flood(0, W, kind === "dare" ? ["🔥"] : ["💬"], 14); } },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, kind === "dare" ? "🔥 DARE" : kind === "truth" ? "💬 TRUTH" : "😈 Truth or Dare", text); },
   };
@@ -22,11 +17,10 @@ export function truthDareMode() {
 
 // ---------------- PICKUP / COMPLIMENT ROULETTE ---------------------------
 export function pickupMode() {
-  const SWEET = ["Are you a magnet? I'm drawn to you 🧲", "You're the best part of my day ☀️", "I'd cross any distance for you ✈️", "You make my heart skip 💓", "Cutest human alive, certified ✅", "I like you a lottle — little + a lot 🥰"];
   const SPICY = ["Is it hot in here, or just you? 🥵", "Come closer to the camera… 😏", "You + me + zero distance = trouble 😈", "These lips look lonely — wanna fix that? 💋", "Stop being so distractingly cute 🔥", "I've got plans for you later 😉", "Wish I could close this distance right now 😩💕", "You have no idea what that smile does to me 🫠", "Keep looking at me like that and I won't behave 😈", "Counting down till I can wrap you up 🤗🔥", "That outfit is doing things to me 👀", "Save that energy for when we're in the same room 😏"];
   let text = "press for a line 💘";
   return {
-    action(a) { if (a === "go") { text = pick(adult ? SPICY : SWEET); net.send({ t: "pickup", text }); FX.flood(0, W, adult ? ["💋", "🔥"] : ["💘"], 16); FX.Sound.chime(); } },
+    action(a) { if (a === "go") { text = pick(SPICY); net.send({ t: "pickup", text }); FX.flood(0, W, ["💋", "🔥"], 16); FX.Sound.chime(); } },
     onNet(m) { if (m.t === "pickup") { text = m.text; FX.flood(0, W, ["💘"], 14); } },
     draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; big(ctx, "💘", text); },
   };
