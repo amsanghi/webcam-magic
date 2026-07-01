@@ -60,6 +60,28 @@ export function createChat({ voice, onSend }) {
   // A mode/host prompt. Shows a prominent "answer bar" above the input and
   // highlights the field, so it's obvious you're answering (not chatting Cupid).
   function endAsk() { pending = null; if (askBar) askBar.classList.add("hidden"); input.classList.remove("answering"); input.placeholder = DEFAULT_PH; }
+  // Clickable action chips from the AI host — its way to "do things" / open
+  // things. items: [{ label, icon?(svg string), run }]. Row disables after a tap.
+  function actions(items) {
+    items = (items || []).filter(Boolean);
+    if (!items.length) return;
+    if (typingEl) thinking(false);
+    const row = document.createElement("div");
+    row.className = "msg ai chips-row";
+    const av = document.createElement("div"); av.className = "avatar ai"; av.innerHTML = ICON.sparkles; row.appendChild(av);
+    const wrap = document.createElement("div"); wrap.className = "chips";
+    items.forEach((it) => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "chip-action";
+      b.innerHTML = (it.icon ? `<span class="icon">${it.icon}</span>` : "") + `<span>${it.label}</span>`;
+      b.addEventListener("click", () => { if (row.dataset.used) return; row.dataset.used = "1"; row.classList.add("used"); try { it.run && it.run(); } catch (_) {} });
+      wrap.appendChild(b);
+    });
+    row.appendChild(wrap);
+    feed.appendChild(row); feed.scrollTop = feed.scrollHeight;
+    while (feed.children.length > 80) feed.removeChild(feed.firstChild);
+    return row;
+  }
+
   function ask(label, opts = {}) {
     return new Promise((resolve) => {
       if (pending) { const p = pending; pending = null; p.resolve(null); }   // supersede any prior prompt
@@ -106,5 +128,5 @@ export function createChat({ voice, onSend }) {
     }
   }
 
-  return { say, clear, ask, speak, thinking, get ttsOn() { return ttsOn; } };
+  return { say, clear, ask, actions, speak, thinking, get busy() { return !!pending; }, get ttsOn() { return ttsOn; } };
 }

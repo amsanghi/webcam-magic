@@ -14,6 +14,7 @@ import { createChat } from "./core/chat.js";
 import { ICON, hydrateIcons } from "./core/icons.js";
 import { hudReset, hudState } from "./modes/ui.js";
 import { modeIcon } from "./core/modeIcons.js";
+import { createDirector } from "./core/director.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -23,6 +24,8 @@ const $ = (id) => document.getElementById(id);
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
 const localVideo = $("localVideo"), remoteVideo = $("remoteVideo");
 hydrateIcons();                    // swap <i data-ic="…"> placeholders for inline SVG
+// action-bar buttons: strip the leading emoji from mode action labels, prefix a clean icon
+const ACT_ICON = { go: ICON.sparkles, next: ICON.arrowRight, prev: ICON.arrowLeft, begin: ICON.play, start: ICON.play, load: ICON.download, ai: ICON.sparkles, ask: ICON.plus, add: ICON.plus, swap: ICON.refresh, reset: ICON.refresh, reveal: ICON.eye, enter: ICON.pencil, words: ICON.pencil, write: ICON.pencil, set: ICON.pencil, answer: ICON.pencil, word: ICON.pencil, guess: ICON.search, clear: ICON.x, remove: ICON.x, spin: ICON.refresh, roll: ICON.refresh, shoot: ICON.camera, tap: ICON.heartFill, calc: ICON.heartFill, lyrics: ICON.chat, enable: ICON.download, "new": ICON.plus };
 
 // Render at higher-than-logical resolution so the feed isn't upscaled/blurry.
 // Drawing math stays in the logical 1280x720 space; the context is scaled by RS,
@@ -62,9 +65,16 @@ const audio = createAudio(host, () => games.mode === "free" && fxOn);
 const aiTools = {
   effect: (n) => { const map = { confetti: () => fireConfetti(), hearts: () => FX.flood(0, W, ["❤️", "💖", "💕"], 60, true), rainbow: () => FX.triggerRainbow(), sparkle: () => FX.confetti(W / 2, H * 0.4, 20), shake: () => FX.addShake(0.5) }; (map[n] || map.sparkle)(); },
   mood: (t) => { const map = { candlelight: () => { FX.setWeather("stars", 0.5); FX.setTint(255, 150, 120, 0.18); }, party: () => { FX.triggerRainbow(); FX.setWeather("stars", 0.6); }, cozy: () => FX.setTint(255, 170, 140, 0.15) }; (map[t] || map.cozy)(); },
+  weather: (t) => { const m = { sun: ["sun", 0.7], rain: ["rain", 0.6], stars: ["stars", 0.6] }; const w = m[t] || m.stars; FX.setWeather(w[0], w[1]); },
   banner: (txt) => FX.banner(W / 2, H * 0.3, String(txt || "").slice(0, 60)),
   game: (id) => { if (MODE_INFO[id]) navTo("play", id); },
+  menu: () => navTo("menu"),
   snap: () => host.snapMoment(),
+  enhance: (lvl) => { if (ENHANCE[lvl]) { enhanceLevel = lvl; try { localStorage.setItem("wm_enh", lvl); } catch (_) {} reflectEnhance(); } },
+  sweet: () => sendSweet(),
+  confetti: () => fireConfetti(),
+  say: (txt) => { if (host.chat && txt) host.chat.say("ai", String(txt)); },
+  ask: (q) => { if (host.chat && q) return host.chat.ask(String(q)); },
 };
 const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
 host.ai = ai;
@@ -79,11 +89,25 @@ const CHAT_FB = ["mm, tell me more 😏", "you two are trouble 💕", "I like wh
 function defaultChat(text) {
   net.send({ t: "chat", who: "partner", text });                 // partner sees my message
   if (host.chat.thinking) host.chat.thinking(true);
-  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } });
+  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } if (host.director) host.director.afterChat(text); });
 }
 const chat = createChat({ voice: host.voice, onSend: (t) => { if (!games.onChat(t)) defaultChat(t); } });
 host.chat = chat;
 host.ask = chat.ask;      // inline dock input replaces the blocking modal
+
+// ---- AI Director: the host that runs the show (proactive + agentic) -------
+const director = createDirector({
+  ai, chat, tools: aiTools,
+  nav: (screen, mode) => navTo(screen, mode),
+  modeAction: (a) => games.action(a),
+  getMode: () => games.mode,
+  getModeActions: (id) => MODE_ACTIONS[id],
+  getModeInfo: (id) => MODE_INFO[id],
+  modeIcon,
+  isAuthority: () => amInitiator,
+});
+host.director = director;
+window.wmDirector = director;      // console/debug handle (see window.wmAI)
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -299,10 +323,11 @@ function fireConfetti() { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID *
 // 💑 days-together counter
 function refreshAnniv() {
   const el = $("anniv"); if (!el) return;
+  const l = el.querySelector(".lbl") || el;
   let d = null; try { d = localStorage.getItem("wm_anniv"); } catch (_) {}
-  if (!d) { el.textContent = "💑 set date"; return; }
+  if (!d) { l.textContent = "set date"; return; }
   const days = Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5));
-  el.textContent = `💑 ${days} days`;
+  l.textContent = `${days} days`;
 }
 async function setAnniv() {
   const cur = (() => { try { return localStorage.getItem("wm_anniv") || ""; } catch (_) { return ""; } })();
@@ -343,7 +368,7 @@ function bumpStreak(heart) {
     try { localStorage.setItem("wm_streak", JSON.stringify({ last: today, streak: dayStreak })); } catch (_) {}
   }
   const el = $("streak");
-  if (el) { el.textContent = `💞 x${combo}` + (dayStreak > 1 ? ` · 🔥 ${dayStreak}d` : ""); el.classList.remove("hidden"); }
+  if (el) { const l = el.querySelector(".lbl") || el; l.textContent = `x${combo}` + (dayStreak > 1 ? ` · ${dayStreak}d` : ""); el.classList.remove("hidden"); }
 }
 
 // ---- reaction weather + beat-reactive (section 8) -------------------------
@@ -625,10 +650,19 @@ function enterPlay(mode) {
   const mi = MODE_INFO[mode];
   const mp = $("modePill"); mp.querySelector(".mp-icon").innerHTML = modeIcon(mode, mi && mi.cat); mp.querySelector(".mp-name").textContent = mi ? mi.nm : mode;
   const bar = $("actionbar"); bar.innerHTML = "";
-  (MODE_ACTIONS[mode] || []).forEach(([a, label]) => { const b = document.createElement("button"); b.textContent = label; b.onclick = () => games.action(a); bar.appendChild(b); });
+  (MODE_ACTIONS[mode] || []).forEach(([a, label]) => {
+    const b = document.createElement("button");
+    const clean = String(label).replace(/^[^\p{L}\p{N}]+/u, "").trim();      // drop the leading emoji
+    const ic = ACT_ICON[a];
+    b.innerHTML = (ic ? `<span class="icon">${ic}</span>` : "") + (clean ? `<span>${clean}</span>` : (ic ? "" : `<span>${a}</span>`));
+    b.onclick = () => games.action(a);
+    bar.appendChild(b);
+  });
   bar.classList.toggle("hidden", !MODE_ACTIONS[mode]);
   clearModeHud();                                         // fresh caption/score bar for the new mode
-  if (host.chat) { host.chat.clear(); if (mi) { host.chat.say("sys", mi.nm); if (mi.how && mi.how[0]) host.chat.say("sys", mi.how[0]); } }
+  if (host.chat) host.chat.clear();
+  if (host.chat && mi) host.chat.say("sys", mi.nm);
+  if (host.director) host.director.intro(mode);           // the host greets + offers one-tap chips
   show("play");
 }
 function showReady(mode) {
@@ -671,16 +705,18 @@ function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "
 
 // ✨ AI status pill (menu + play). Shows tier/load state; click loads the model.
 function aiPillText(short) {
-  const ai = host.ai; if (!ai || !ai.tier) return short ? "✨" : "✨ AI: off";
-  if (ai.status === "ready") return short ? "✨ on" : `✨ AI on (${ai.tier === 3 ? "server" : ai.tier === 2 ? "power" : "light"})`;
-  if (ai.status === "loading") return "✨ " + Math.round((ai.progress || 0) * 100) + "%";
-  return ai.available() ? (short ? "✨ load" : "✨ load AI") : (short ? "✨" : "✨ AI");
+  const ai = host.ai; if (!ai || !ai.tier) return short ? "AI" : "AI off";
+  if (ai.status === "ready") return short ? "on" : `AI on (${ai.tier === 3 ? "server" : ai.tier === 2 ? "power" : "light"})`;
+  if (ai.status === "loading") return Math.round((ai.progress || 0) * 100) + "%";
+  return ai.available() ? (short ? "load" : "load AI") : "AI";
 }
 function refreshAiPills() {
   const ready = host.ai && host.ai.status === "ready";
-  const a = $("aiPill"), b = $("aiPill2");
-  if (a) { a.textContent = aiPillText(false); a.classList.toggle("on", ready); }
-  if (b) { b.textContent = aiPillText(true); b.classList.toggle("on", ready); }
+  [["aiPill", false], ["aiPill2", true]].forEach(([id, short]) => {
+    const el = $(id); if (!el) return;
+    const lbl = el.querySelector(".lbl"); if (lbl) lbl.textContent = aiPillText(short); else el.textContent = aiPillText(short);
+    el.classList.toggle("on", ready);
+  });
 }
 // tappable AI settings (phone-friendly — no console needed): paste a home-server
 // URL, or load the on-device model. Server URL persists + auto-shares to partner.
@@ -746,6 +782,11 @@ $("copyLink2").addEventListener("click", (e) => copyLink(e.currentTarget));
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
 $("aiPill").addEventListener("click", aiPillClick);
 $("aiPill2").addEventListener("click", aiPillClick);
+// AI host (Director) — proactive + auto-switch
+function reflectDirector() { const b = $("directorBtn"); if (!b) return; const on = host.director && host.director.isOn(); b.classList.toggle("on", on); b.dataset.tip = on ? "AI host on — I'm running the show ✨" : "Let the AI host — proactive + auto-switch"; }
+$("directorBtn").addEventListener("click", async () => { if (host.director) { await host.director.setHost(!host.director.isOn()); reflectDirector(); } });
+reflectDirector();
+setInterval(() => { if (playing && host.director) host.director.tick(); }, 4000);
 $("surpriseBtn").addEventListener("click", surprise);
 $("menuSearch").addEventListener("input", (e) => filterMenu(e.target.value));
 setInterval(refreshAiPills, 700);
