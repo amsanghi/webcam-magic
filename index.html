@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Webcam Magic — gesture & face party for two</title>
-<link rel="stylesheet" href="./style.css" />
+<link rel="stylesheet" href="./style.css?v=2" />
 </head>
 <body>
   <!-- hidden source videos -->
@@ -71,8 +71,19 @@
       <button class="chip" id="eyeBtn" title="Close your eyes to snap a photo (on)">👁</button>
       <button class="chip" id="leaveBtn" title="Leave">✕</button>
     </div>
-    <div id="stage" data-size="m"><canvas id="canvas" width="1280" height="720"></canvas></div>
-    <div id="actionbar" class="hidden"></div>
+    <div id="playBody">
+      <aside id="chatDock">
+        <div id="actionbar" class="hidden"></div>
+        <div id="chatFeed"></div>
+        <form id="chatForm" autocomplete="off">
+          <button type="button" id="micBtn" class="chip" title="Speak (voice input)">🎤</button>
+          <input id="chatInput" type="text" placeholder="Message Cupid, or type your answer…" />
+          <button type="button" id="ttsBtn" class="chip" title="Read AI replies aloud">🔊</button>
+          <button type="submit" id="chatSend" title="Send">➤</button>
+        </form>
+      </aside>
+      <div id="stage" data-size="l"><canvas id="canvas" width="1280" height="720"></canvas></div>
+    </div>
   </section>
 
   <!-- tuning panel (toggled) -->

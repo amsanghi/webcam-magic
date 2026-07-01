@@ -26,7 +26,7 @@ function lineMode(cfg) {
       if (a === "go") {
         busy = true;
         host.ai.ask({ system: cfg.sys, user: cfg.user(), max: cfg.max || 60, temp: cfg.temp }, () => pick(cfg.deck))
-          .then((t) => { text = (t || "").trim() || pick(cfg.deck); busy = false; net.send({ t: cfg.id, x: text }); if (cfg.fx) FX.flood(0, W, cfg.fx, 14); });
+          .then((t) => { text = (t || "").trim() || pick(cfg.deck); busy = false; net.send({ t: cfg.id, x: text }); if (host.chat) host.chat.say("ai", text); if (cfg.fx) FX.flood(0, W, cfg.fx, 14); });
       }
     },
     onNet(m) { if (m.t === cfg.id) text = m.x; },
@@ -36,26 +36,12 @@ function lineMode(cfg) {
 
 // ---------------- CUPID — shared AI companion ----------------------------
 export function cupidMode() {
-  const FB = ["I love how you two keep finding each other across the miles 💕", "Idea: swap phones and each plan the other's dream date 🥰", "Tiny challenge: say one thing you're grateful for about each other ✨", "You could try Kiss Cam next 😘"];
-  let log = ["Hi you two 💕 tap ‘ask’ — a date idea, a debate to settle, a poem about you both…"], busy = false;
+  // Cupid lives in the chat dock now — just set the scene here. Typing in the
+  // input (from any mode, but this is its home) goes straight to the AI.
   return {
-    action(a) {
-      if (a === "load") { host.ai.load(); return; }
-      if (a === "ask") {
-        host.ask("Ask Cupid anything:").then((q) => {
-          if (!q) return; log.push("💬 " + q); busy = true;
-          host.ai.ask({ user: q, max: 130, temp: 0.9 }, () => pick(FB))
-            .then((t) => { log.push("💘 " + ((t || "").trim() || pick(FB))); log = log.slice(-6); busy = false; net.send({ t: "cupid", log }); });
-        });
-      }
-    },
-    onNet(m) { if (m.t === "cupid") log = m.log; },
-    draw(ctx) {
-      ctx.save(); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui";
-      const lines = log.slice(-5); lines.forEach((l, i) => { ctx.font = (l[0] === "💘" ? "22px" : "18px") + " system-ui"; ctx.fillStyle = l[0] === "💘" ? "#ffd2e0" : "rgba(255,255,255,.85)"; wrapText(ctx, l, W / 2, 160 + i * 90, W * 0.8, 26); });
-      ctx.restore();
-      big(ctx, "", busy ? "✨ thinking…" : ""); hint(ctx, aiHint());
-    },
+    enter() { if (host.chat) host.chat.say("ai", "Hey you two 💕 talk to me right here — a date idea, a dare, a debate settled, a poem, or just flirt. Tap 🎤 to speak, 🔊 to hear me back."); },
+    action(a) { if (a === "load") host.ai.load(); },
+    draw(ctx) { big(ctx, "💘 Cupid", "chat with me on the left ↙"); hint(ctx, aiHint()); },
   };
 }
 function wrapText(ctx, t, cx, y, maxW, lh) {
@@ -142,7 +128,7 @@ const PET_FB = ["moonbeam 🌙", "trouble 😏", "my favorite notification 📱�
 const ROAST_FB = ["You're so cute it's honestly a little unfair to everyone else 😤💕", "Warning: dangerously charming and terrible at texting back on time 😏", "Certified heart-throb, expired at replying under an hour 💌"];
 
 export const modes = {
-  cupid:      { cat: "AI ✨", ic: "💘", nm: "Cupid (AI)", how: ["Your on-device AI companion", "Ask for date ideas, settle a debate, get a poem — it can spark effects too", "On your Mac it runs a big model and streams to your partner"], actions: [["ask", "💬 ask"], ["load", "⬇ AI"]], make: cupidMode },
+  cupid:      { cat: "AI ✨", ic: "💘", nm: "Cupid (AI)", how: ["Your on-device AI companion — just type in the chat on the left (🎤 to speak, 🔊 to hear replies)", "Ask for date ideas, a dare, settle a debate, a poem — it streams to your partner too", "Press ⬇ AI once to load the model on a capable device"], actions: [["load", "⬇ AI"]], make: cupidMode },
   gamemaster: { cat: "AI ✨", ic: "🎬", nm: "AI Game Master", how: ["The AI runs your night — it picks games, sets the mood, and fires effects", "Press go and let it surprise you both"], actions: [["go", "🎬 go"], ["load", "⬇ AI"]], make: gameMasterMode },
   adventure:  { cat: "AI ✨", ic: "🗺️", nm: "AI Adventure", how: ["A romantic choose-your-story, generated live", "‘begin’ then ‘next’ to keep the tale going together"], actions: [["begin", "▶ begin"], ["next", "➡ next"], ["load", "⬇ AI"]], make: adventureMode },
   madlibs:    { cat: "AI ✨", ic: "🤪", nm: "Mad Libs (AI)", how: ["Give three silly words", "The AI spins them into a goofy little story about you two"], actions: [["words", "✍️ words"], ["load", "⬇ AI"]], make: madLibsMode },

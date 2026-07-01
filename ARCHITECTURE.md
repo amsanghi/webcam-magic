@@ -17,7 +17,7 @@ src/
     detectors.js      createDetectors() → lazy object / pose / segmenter detectors, stepped per frame
     audio.js          createAudio() → mic analyser: level, pitch, beat transient, clap detection
     capabilities.js   detectTier() (0 static / 1 light / 2 powerhouse) + amGenerator() election
-    ai.js             createAI() → host.ai: ask()/load()/onNet()/runActions() + content boundary
+    ai.js             createAI() → host.ai: ask()/load()/onNet()/runActions() + AI_SYS tone
     llm.js            createLLM() → main-thread manager around the worker (load state, generate)
     llm.worker.js     module worker: lazy-loads WebLLM (t2) or transformers.js (t1) from CDN
   perception/
@@ -163,7 +163,8 @@ Optional on-device LLM, exposed to modes as `host.ai` and wired in `app.js`.
   generation runs in `llm.worker.js` off the render loop.
 - **Tool use** (`host.ai.runActions`): the Game Master model emits JSON actions executed via the
   `aiTools` map in `app.js` (effects, mood, banner, jump-to-game, snapshot).
-- **Boundary:** the system prompt (`AI_SYS` in `core/ai.js`) keeps output flirty-but-never-explicit.
+- **Tone:** the system prompt (`AI_SYS` in `core/ai.js`) sets a bold/adult tone (private couple, at
+  their discretion) with only the non-negotiable floor (no minors / non-consent / illegal).
 - Everything is CDN ES modules + client-side model download → works on the static GitHub Pages host.
 
 ## What stayed in app.js (intentional)
