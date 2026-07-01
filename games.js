@@ -501,9 +501,9 @@ export function createGames(net, host) {
     const half = (s, front) => front ? s.slice(0, Math.ceil(s.length / 2)) : s.slice(Math.floor(s.length / 2));
     const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "?";
     return {
-      action(act) {
+      async action(act) {
         if (act !== "go") return;
-        if (!a || !b) { const v = prompt("Your two names (comma separated):", ""); if (v) { const p = v.split(","); a = (p[0] || "").trim(); b = (p[1] || "").trim(); } }
+        if (!a || !b) { const v = await host.ask("Your two names (comma separated):"); if (v) { const p = v.split(","); a = (p[0] || "").trim(); b = (p[1] || "").trim(); } }
         if (a && b) { out = cap(pick([half(a, 1) + half(b, 0), half(b, 1) + half(a, 0), half(a, 1) + half(b, 1)])); net.send({ t: "mash", text: out }); FX.confetti(W / 2, H / 2, 30); FX.Sound.chime(); }
       },
       onNet(m) { if (m.t === "mash") { out = m.text; FX.confetti(W / 2, H / 2, 30); } },
@@ -515,7 +515,7 @@ export function createGames(net, host) {
   function countdownMode() {
     const get = () => { try { return localStorage.getItem("wm_meet"); } catch (_) { return null; } };
     return {
-      action(a) { if (a === "set") { const v = prompt("Date you'll next meet (YYYY-MM-DD):", get() || ""); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) try { localStorage.setItem("wm_meet", v.trim()); } catch (_) {} } },
+      async action(a) { if (a === "set") { const v = await host.ask("Date you'll next meet (YYYY-MM-DD):", { value: get() || "" }); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) try { localStorage.setItem("wm_meet", v.trim()); } catch (_) {} } },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.fillStyle = "#fff"; const d = get();
         if (!d) return big(ctx, "📅 set the date", "press “set date” for your next meetup");
@@ -533,11 +533,11 @@ export function createGames(net, host) {
     const norm = (s) => (s || "").toLowerCase().replace(/[^a-z]/g, "");
     return {
       enter() { strokes = []; cur = { 0: null, 1: null }; isDrawer = false; word = ""; revealed = false; score = 0; },
-      action(a) {
+      async action(a) {
         if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); }
         else if (a === "reveal") { revealed = true; net.send({ t: "pic-reveal", w: word }); }
         else if (a === "clear") { strokes = []; net.send({ t: "draw-clear" }); }
-        else if (a === "guess") { if (isDrawer) return; const g = prompt("Your guess:"); if (g) net.send({ t: "pic-guess", g }); }
+        else if (a === "guess") { if (isDrawer) return; const g = await host.ask("Your guess:"); if (g) net.send({ t: "pic-guess", g }); }
       },
       onNet(m) {
         if (m.t === "pic-role") { isDrawer = false; word = ""; revealed = false; }
@@ -584,7 +584,7 @@ export function createGames(net, host) {
   function karaokeMode() {
     let lines = [], y = H, speed = 42;
     return {
-      action(a) { if (a === "lyrics") { const v = prompt("Paste lyrics (one line per line):"); if (v) { lines = v.split("\n"); y = H; net.send({ t: "lyrics", text: v }); } } else if (a === "restart") y = H; },
+      async action(a) { if (a === "lyrics") { const v = await host.ask("Paste lyrics (one line per line):", { multiline: true }); if (v) { lines = v.split("\n"); y = H; net.send({ t: "lyrics", text: v }); } } else if (a === "restart") y = H; },
       onNet(m) { if (m.t === "lyrics") { lines = m.text.split("\n"); y = H; } },
       update(dt) { if (lines.length) { y -= speed * dt; if (y < -lines.length * 46) y = H; } },
       draw(ctx) {
@@ -636,7 +636,7 @@ export function createGames(net, host) {
   function ourSongMode() {
     let title = "our song", spin = 0;
     return {
-      action(a) { if (a === "set") { const v = prompt("Name your song:", title); if (v) { title = v; net.send({ t: "song", title: v }); } } },
+      async action(a) { if (a === "set") { const v = await host.ask("Name your song:", { value: title }); if (v) { title = v; net.send({ t: "song", title: v }); } } },
       onNet(m) { if (m.t === "song") title = m.title; },
       update(dt) { spin += dt * (1 + FX.getBeat() * 5); },
       draw(ctx) {
@@ -656,7 +656,7 @@ export function createGames(net, host) {
     let inbox = [];
     return {
       enter() { inbox = load(); },
-      action(a) { if (a === "write") { const v = prompt("Write a love note for your partner:"); if (v) { net.send({ t: "letter", text: v }); FX.travel({ x: W * 0.25, y: H * 0.5 }, () => ({ x: W, y: H * 0.4 }), "💌"); FX.banner(W / 2, H * 0.3, "sent 💌"); FX.Sound.chime(); } } },
+      async action(a) { if (a === "write") { const v = await host.ask("Write a love note for your partner:", { multiline: true }); if (v) { net.send({ t: "letter", text: v }); FX.travel({ x: W * 0.25, y: H * 0.5 }, () => ({ x: W, y: H * 0.4 }), "💌"); FX.banner(W / 2, H * 0.3, "sent 💌"); FX.Sound.chime(); } } },
       onNet(m) { if (m.t === "letter") { inbox.push({ text: m.text }); save(inbox); FX.travel({ x: 0, y: H * 0.4 }, () => ({ x: W * 0.25, y: H * 0.5 }), "💌", () => { FX.banner(W / 2, H * 0.3, "💌 new note!"); FX.flood(0, W, ["💕"], 14); }); FX.Sound.chime(); } },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui"; ctx.fillText("💌 Love Mailbox — “write” to send a note", W / 2, 48);
@@ -712,7 +712,7 @@ export function createGames(net, host) {
     const V = ["soulmates 💞", "written in the stars ✨", "a perfect match 💕", "made for each other 🥰", "the cutest couple 😍", "endgame 💍"];
     let pct = null, verdict = "";
     return {
-      action(a) { if (a === "calc") { const v = prompt("Two names (comma separated):", ""); if (v) { let h = 0; for (const ch of v.toLowerCase().replace(/[^a-z]/g, "")) h = (h * 31 + ch.charCodeAt(0)) % 1000; pct = 75 + h % 26; verdict = pick(V); net.send({ t: "lovecalc", pct, verdict }); FX.flood(0, W, ["❤️", "💕"], 30); FX.Sound.chime(); } } },
+      async action(a) { if (a === "calc") { const v = await host.ask("Two names (comma separated):"); if (v) { let h = 0; for (const ch of v.toLowerCase().replace(/[^a-z]/g, "")) h = (h * 31 + ch.charCodeAt(0)) % 1000; pct = 75 + h % 26; verdict = pick(V); net.send({ t: "lovecalc", pct, verdict }); FX.flood(0, W, ["❤️", "💕"], 30); FX.Sound.chime(); } } },
       onNet(m) { if (m.t === "lovecalc") { pct = m.pct; verdict = m.verdict; } },
       draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; pct == null ? big(ctx, "❤️ Love Calculator", "press “calc” + enter both names") : big(ctx, pct + "% 💘", verdict); },
     };
@@ -744,7 +744,7 @@ export function createGames(net, host) {
     const rowY = (i) => 120 + i * 46;
     return {
       enter() { items = load(); },
-      action(a) { if (a === "add") { const v = prompt("Add something to do together:"); if (v) { items.push({ t: v, done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "clear") { items = []; save(); net.send({ t: "bucket", items }); } },
+      async action(a) { if (a === "add") { const v = await host.ask("Add something to do together:"); if (v) { items.push({ t: v, done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "clear") { items = []; save(); net.send({ t: "bucket", items }); } },
       onNet(m) { if (m.t === "bucket") { items = m.items || []; save(); } },
       update(dt, local) {
         const d = local && local.pinch && local.pinch.active;
