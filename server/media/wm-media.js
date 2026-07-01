@@ -86,13 +86,17 @@ async function tts(text, voice) {
   await runToBuffer(PIPER_BIN, ["--model", model, "--output_file", tmp], Buffer.from(String(text)));
   const buf = fs.readFileSync(tmp); try { fs.unlinkSync(tmp); } catch (_) {} return buf;
 }
-async function stt(wavBuf) {
+async function stt(inBuf) {
   if (!WHISPER_MODEL) throw new Error("no WHISPER_MODEL set");
-  const tmp = path.join(os.tmpdir(), "wm-stt-" + Date.now() + ".wav");
-  fs.writeFileSync(tmp, wavBuf);
-  const out = await runToBuffer(WHISPER_BIN, ["-m", WHISPER_MODEL, "-f", tmp, "-nt", "-otxt", "-of", tmp]);
-  let text = ""; try { text = fs.readFileSync(tmp + ".txt", "utf8").trim(); } catch (_) { text = out.toString().trim(); }
-  try { fs.unlinkSync(tmp); fs.unlinkSync(tmp + ".txt"); } catch (_) {}
+  const base = path.join(os.tmpdir(), "wm-stt-" + Date.now());
+  const raw = base + ".in", wav = base + ".wav";
+  fs.writeFileSync(raw, inBuf);
+  // browsers record webm/opus (or mp4 on Safari); whisper.cpp wants 16k mono WAV.
+  try { await runToBuffer("ffmpeg", ["-y", "-i", raw, "-ar", "16000", "-ac", "1", "-f", "wav", wav]); } catch (_) {}
+  const src = fs.existsSync(wav) ? wav : raw;
+  const out = await runToBuffer(WHISPER_BIN, ["-m", WHISPER_MODEL, "-f", src, "-nt", "-otxt", "-of", base]);
+  let text = ""; try { text = fs.readFileSync(base + ".txt", "utf8").trim(); } catch (_) { text = out.toString().trim(); }
+  for (const f of [raw, wav, base + ".txt"]) try { fs.unlinkSync(f); } catch (_) {}
   return text;
 }
 function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }

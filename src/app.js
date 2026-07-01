@@ -121,7 +121,12 @@ function defaultChat(text) {
   if (host.chat.thinking) host.chat.thinking(true);
   host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } if (host.director) host.director.afterChat(text); });
 }
-const chat = createChat({ voice: host.voice, onSend: (t) => { bumpInteract(); if (!games.onChat(t)) defaultChat(t); } });
+const chat = createChat({
+  voice: host.voice,
+  onSend: (t) => { bumpInteract(); if (!games.onChat(t)) defaultChat(t); },
+  serverTts: (t) => (host.ai && host.ai.tts ? host.ai.tts(t) : Promise.resolve(null)),   // neural voice → falls back to browser TTS
+  serverStt: (b) => (host.ai && host.ai.stt ? host.ai.stt(b) : Promise.resolve(null)),   // Whisper for mic where Web Speech is absent
+});
 host.chat = chat;
 host.ask = chat.ask;      // inline dock input replaces the blocking modal
 
