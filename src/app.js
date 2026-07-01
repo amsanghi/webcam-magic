@@ -15,6 +15,7 @@ import { ICON, hydrateIcons } from "./core/icons.js";
 import { hudReset, hudState } from "./modes/ui.js";
 import { modeIcon } from "./core/modeIcons.js";
 import { createDirector } from "./core/director.js";
+import { createMemory } from "./core/memory.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -35,7 +36,7 @@ const RS = Math.min(window.innerWidth, window.innerHeight) < 820
   : Math.min(3, Math.max(2, window.devicePixelRatio || 1));
 canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
 ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-canvas.addEventListener("pointerdown", (e) => { const r = canvas.getBoundingClientRect(); host.pointer = { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, t: performance.now() }; });
+canvas.addEventListener("pointerdown", (e) => { const r = canvas.getBoundingClientRect(); host.pointer = { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, t: performance.now() }; bumpInteract(); });
 
 let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
@@ -49,6 +50,8 @@ let enhanceLevel = "natural"; try { const v = localStorage.getItem("wm_enh"); if
 let eyeClosedT = 0, eyeArmed = false, eyeReopen = -1, snapCount = 0;   // "close eyes to snap"
 let frame = 0, lastVideoTime = -1;
 let combo = 0;
+let sessionStartT = performance.now(), lastInteractT = performance.now();   // for the Director's lull/arc sense
+const bumpInteract = () => { lastInteractT = performance.now(); };
 
 let localG = G.blankState(), remoteG = G.blankState();
 
@@ -82,6 +85,22 @@ host.ai = ai;
 //   wmAI.configure("https://your-tunnel-url")   — then it becomes the top tier.
 window.wmAI = ai;
 
+// ---- couple memory: names, moments, and end-of-night recaps. Persists locally and
+// syncs a compact snapshot to the partner, so both devices "remember" the same night.
+// onChange keeps the AI's personalization/tone current and (throttled) shares to peer.
+let memSyncT = 0;
+const memory = createMemory({
+  onChange: (sync) => {
+    if (memory.profile.a) ai.setProfile(memory.profile.a, memory.profile.b);
+    if (ai.setTone && memory.spice != null) ai.setTone(Math.min(2, memory.spice));
+    if (sync !== false && inCall) { const t = performance.now(); if (t - memSyncT > 2500) { memSyncT = t; net.send({ t: "mem", snap: memory.snapshot() }); } }
+  },
+});
+host.memory = memory;
+window.wmMemory = memory;
+if (memory.profile.a) ai.setProfile(memory.profile.a, memory.profile.b);
+if (ai.setTone && memory.spice != null) ai.setTone(Math.min(2, memory.spice));
+
 // ---- chat dock: inline input (replaces the old modal) + AI companion + voice.
 // Typing in ANY mode: if the mode handles it (games.onChat) use that, else it's
 // a message to the AI companion (Cupid) — available everywhere out of the box.
@@ -91,7 +110,7 @@ function defaultChat(text) {
   if (host.chat.thinking) host.chat.thinking(true);
   host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } if (host.director) host.director.afterChat(text); });
 }
-const chat = createChat({ voice: host.voice, onSend: (t) => { if (!games.onChat(t)) defaultChat(t); } });
+const chat = createChat({ voice: host.voice, onSend: (t) => { bumpInteract(); if (!games.onChat(t)) defaultChat(t); } });
 host.chat = chat;
 host.ask = chat.ask;      // inline dock input replaces the blocking modal
 
@@ -105,6 +124,7 @@ const director = createDirector({
   getModeInfo: (id) => MODE_INFO[id],
   modeIcon,
   isAuthority: () => amInitiator,
+  memory, getRoom: roomState, grabFrame: (m, q) => host.grabFrame(m, q),
 });
 host.director = director;
 window.wmDirector = director;      // console/debug handle (see window.wmAI)
@@ -264,7 +284,7 @@ function coupleEffects(dt) {
   edge("mutualHeart", localG.two.heart && remoteG.two.heart, () => {
     FX.flood(0, W, ["❤️", "💖", "💕", "💗", "💞", "🩷"], 120, true);
     FX.burst(W / 2, H / 2, ["❤️", "💖", "💕"], 40, 520); FX.addShake(0.5); FX.Sound.chime();
-    bumpStreak(true);
+    bumpStreak(true); bumpInteract(); if (host.memory) host.memory.note("moment", "made a heart together ❤️");
   });
   // synchronized smile -> rainbow
   edge("syncSmile", localG.face.smile > G.TUNE.smile + 0.05 && remoteG.face.smile > G.TUNE.smile + 0.05, () => { FX.triggerRainbow(); FX.Sound.chime(); });
@@ -276,13 +296,13 @@ function coupleEffects(dt) {
   if (meeting) {
     FX.link(MID - 4, lHand.y * H, MID + 4, rHand.y * H);
     loveMeter = Math.min(1, loveMeter + dt * 0.22);
-    if (loveMeter >= 1 && !loveMaxed) { loveMaxed = true; FX.flood(0, W, ["💖", "🎆", "✨", "💞"], 90, true); FX.burst(W / 2, H / 2, ["🎆", "💖"], 40, 520); FX.Sound.chime(); FX.banner(W / 2, H * 0.4, "soulmates 💞"); }
+    if (loveMeter >= 1 && !loveMaxed) { loveMaxed = true; FX.flood(0, W, ["💖", "🎆", "✨", "💞"], 90, true); FX.burst(W / 2, H / 2, ["🎆", "💖"], 40, 520); FX.Sound.chime(); FX.banner(W / 2, H * 0.4, "soulmates 💞"); if (host.memory) host.memory.note("moment", "maxed the love-o-meter 💞"); }
   } else { loveMeter = Math.max(0, loveMeter - dt * 0.12); if (loveMeter <= 0) loveMaxed = false; }
 
   // 💋 kiss meter — both pucker at once
   edge("mutualKiss", localG.face.kiss > G.TUNE.kiss && remoteG.face.kiss > G.TUNE.kiss, () => {
     FX.burst(MID, H * 0.4, ["💋", "❤️", "💕", "💗"], 26, 420); FX.addShake(0.25); FX.Sound.chime();
-    kissesToday = bumpDaily("wm_kiss"); FX.banner(MID, H * 0.32, `💋 kiss #${kissesToday}`);
+    kissesToday = bumpDaily("wm_kiss"); FX.banner(MID, H * 0.32, `💋 kiss #${kissesToday}`); bumpInteract(); if (host.memory) host.memory.note("moment", "shared a kiss 💋");
   });
   // 🤙 pinky promise — both make a pinky
   edge("pinky", localG.poses.pinky && remoteG.poses.pinky, () => { FX.link(MID - 30, H * 0.45, MID + 30, H * 0.45); FX.burst(MID, H * 0.45, ["🤙", "✨"], 10, 200); FX.banner(MID, H * 0.34, "pinky promise 🤙"); FX.Sound.chime(); });
@@ -444,7 +464,7 @@ function loop() {
       eyeClosedT = 0;
       if (eyeArmed) {
         eyeReopen = eyeReopen < 0 ? 0 : eyeReopen + dt;
-        if (eyeReopen > 0.25) { eyeArmed = false; eyeReopen = -1; snapCount++; host.snapMoment(); FX.flash(); FX.banner(W / 2, H * 0.28, `📸 saved! (${snapCount})`); FX.Sound.pop(); }
+        if (eyeReopen > 0.25) { eyeArmed = false; eyeReopen = -1; snapCount++; host.snapMoment(); FX.flash(); FX.banner(W / 2, H * 0.28, `📸 saved! (${snapCount})`); FX.Sound.pop(); if (host.memory) host.memory.note("photo", "saved a candid photo 📸"); }
       }
     }
   } else { eyeClosedT = 0; eyeArmed = false; eyeReopen = -1; }
@@ -479,6 +499,25 @@ function loop() {
 }
 const _dummy = G.blankState();
 function nullDummy() { return _dummy; }
+
+// Snapshot of "the room" for the AI Director — energy, mood, lull, session arc.
+function roomState() {
+  const l = localG, r = inCall ? remoteG : null;
+  const bothPresent = !!(l.present && r && r.present);
+  const smile = bothPresent ? (l.face.smile + r.face.smile) / 2 : l.face.smile;
+  const laugh = !!(l.face.laugh || (r && r.face.laugh));
+  const kiss = !!(l.face.kiss > G.TUNE.kiss && r && r.face.kiss > G.TUNE.kiss);
+  const heart = !!(l.two.heart && r && r.two.heart);
+  const hug = !!(l.two.armsWide && r && r.two.armsWide);
+  const audioLvl = (host.audio && host.audio.level) || 0;
+  const energy = Math.min(1, audioLvl * 1.7 + (laugh ? 0.5 : 0) + Math.max(0, smile - 0.3));
+  const zoned = !!(l.face.zoned || (r && r.face.zoned));
+  return {
+    bothPresent, smile, laugh, kiss, heart, hug, energy, zoned,
+    idleMs: performance.now() - lastInteractT, elapsedMs: performance.now() - sessionStartT,
+    mode: games.mode, cat: (MODE_INFO[games.mode] || {}).cat || "", hour: new Date().getHours(), inCall,
+  };
+}
 
 // ---- DOM HUD: caption card (below video) + score bar (above) --------------
 // Modes call big()/hint()/scoreboard() (in modes/ui.js) which now write state
@@ -576,6 +615,7 @@ function route(data) {
   if (!data) return;
   if (data.t === "nav") { navTo(data.screen, data.mode, true); return; }
   if (data.t === "cap" || data.t === "llm-req" || data.t === "llm-res") { host.ai.onNet(data); return; }
+  if (data.t === "mem") { memory.applyRemote(data.snap); return; }
   if (data.t === "chat") { host.chat.say(data.who, data.text); return; }
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
   games.onNet(data); handleFreeNet(data);
@@ -600,6 +640,7 @@ function connect(word, stream) {
       if (!primary) { primary = entry; sendMsg = (o) => { const e = entries.find((x) => x.connected); if (e) e.action.send(o); }; }   // one transport only (no double-send)
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚"); ai.announce();
+      try { net.send({ t: "mem", snap: memory.snapshot() }); } catch (_) {}
     };
     r.onPeerLeave = () => { entry.connected = false; if (!entries.some((e) => e.connected)) { connectedOnce = false; remoteG = G.blankState(); haveRemoteVideo = false; setConn("waiting…"); scheduleReconnect(); } };
     r.onPeerStream = (st) => { remoteVideo.srcObject = st; remoteVideo.play().catch(() => {}); haveRemoteVideo = true; };
@@ -637,6 +678,7 @@ function show(id) { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !==
 
 let pendingMode = "free";
 function navTo(screen, mode, fromNet) {
+  if (!fromNet) bumpInteract();
   if (mode) pendingMode = mode;
   if (screen === "play") enterPlay(pendingMode);
   else if (screen === "ready") { showReady(pendingMode); show("ready"); }
@@ -729,6 +771,8 @@ function aiPillClick() {
     <label class="dlabel">Home-server URL (from <code>server/start.sh</code>)</label>
     <input type="text" id="aiSrvUrl" placeholder="https://xxxx.trycloudflare.com" autocomplete="off" autocapitalize="off" />
     <input type="text" id="aiSrvModel" placeholder="model — optional, e.g. active / dolphin3:8b" autocomplete="off" autocapitalize="off" />
+    <label class="dlabel">Vibe — how far the AI goes</label>
+    <select id="aiSpice"><option value="0">Sweet (PG)</option><option value="1">Flirty</option><option value="2">Uncensored</option></select>
     <div class="dlabel" id="aiMsg" style="min-height:1.2em"></div>
     <div class="ask-row">
       <button class="ask-cancel" id="aiClose">Close</button>
@@ -738,6 +782,8 @@ function aiPillClick() {
   document.body.appendChild(wrap);
   const url = wrap.querySelector("#aiSrvUrl"), model = wrap.querySelector("#aiSrvModel");
   try { url.value = ai.serverUrl || localStorage.getItem("wm_ai_server") || ""; } catch (_) {}
+  const spice = wrap.querySelector("#aiSpice");
+  if (spice && host.memory) { spice.value = String(host.memory.spice != null ? host.memory.spice : 2); spice.addEventListener("change", () => host.memory.setSpice(+spice.value)); }
   const close = () => wrap.remove();
   wrap.querySelector("#aiClose").onclick = close;
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });

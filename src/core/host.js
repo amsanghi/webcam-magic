@@ -24,6 +24,16 @@ export function createHost(canvas, localVideo) {
       canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
       persistThumb();
     },
+    // 👁 a downscaled JPEG data-URL of the current canvas (both video halves) for
+    // the AI to "see" — does NOT save (unlike snapMoment). Used by host.ai.see().
+    grabFrame: (max = 512, q = 0.72) => {
+      try {
+        const cw = canvas.width || max, s = Math.min(1, max / cw);
+        const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(cw * s)); c.height = Math.max(1, Math.round((canvas.height || max) * s));
+        c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+        return c.toDataURL("image/jpeg", q);
+      } catch (_) { return null; }
+    },
     // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
     // the whole tab (stops packets), so the partner sees a silent link and reconnects.
     ask: (label, opts = {}) => new Promise((resolve) => {
