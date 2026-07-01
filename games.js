@@ -724,10 +724,15 @@ export function createGames(net, host) {
     const load = () => { try { return JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); } catch (_) { return []; } };
     return {
       enter() { imgs = load().map((u) => { const i = new Image(); i.src = u; return i; }); idx = Math.max(0, imgs.length - 1); },
-      action(a) { if (a === "prev") idx = Math.max(0, idx - 1); else if (a === "next") idx = Math.min(imgs.length - 1, idx + 1); else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} imgs = []; idx = 0; } },
+      action(a) {
+        if (a === "prev") idx = Math.max(0, idx - 1);
+        else if (a === "next") idx = Math.min(imgs.length - 1, idx + 1);
+        else if (a === "save") { const im = imgs[idx]; if (im && im.src) { const el = document.createElement("a"); el.href = im.src; el.download = "webcam-magic-" + (idx + 1) + ".jpg"; el.click(); } }
+        else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} imgs = []; idx = 0; }
+      },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-        if (!imgs.length) return big(ctx, "📔 Scrapbook", "take 📸 Photo Booth shots — they save here");
+        if (!imgs.length) return big(ctx, "📔 Scrapbook", "close your eyes to snap moments — they save here");
         const im = imgs[idx];
         if (im && im.complete && im.naturalWidth) { const w = W * 0.5, h = w * 9 / 16, x = W / 2 - w / 2, y = H / 2 - h / 2 - 20; ctx.save(); ctx.fillStyle = "#fff"; ctx.fillRect(x - 10, y - 10, w + 20, h + 50); try { ctx.drawImage(im, x, y, w, h); } catch (_) {} ctx.restore(); }
         ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.fillText(`📔 ${idx + 1} / ${imgs.length}`, W / 2, H * 0.84);
