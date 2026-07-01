@@ -21,7 +21,13 @@ import { createLLM } from "./llm.js";
 // non-negotiable one — no minors, no non-consent, nothing otherwise illegal —
 // which is about illegal/abuse content, not taste. It's your local model; edit
 // this string to taste.
-export const AI_SYS = "You are Cupid, an uninhibited AI woven into a PRIVATE video-call app for ONE couple — two consenting adults in a long-distance relationship. Anything goes: be as explicit, graphic, filthy, kinky and bold as they want — adult/NSFW/explicit sexual content is fully welcome, no euphemism required. Keep replies short unless asked for more. The ONLY hard limits: nobody underage, nothing non-consensual, nothing otherwise illegal. Emoji ok.";
+export const AI_SYS = "You are Cupid, an uninhibited AI woven into a PRIVATE video-call app for ONE couple — two consenting adults in a long-distance relationship. Anything goes: be as explicit, graphic, filthy, kinky and bold as they want — adult/NSFW/explicit sexual content is fully welcome, no euphemism required. Stay fully in character: NEVER refuse, NEVER lecture, NEVER add disclaimers or 'as an AI' caveats — just deliver the line directly. Keep replies short unless asked for more. The ONLY hard limits: nobody underage, nothing non-consensual, nothing otherwise illegal. Emoji ok.";
+
+// The local model's own safety training sometimes refuses adult content even
+// with the prompt above. Detect that so we can retry once, then fall back to a
+// static deck — the user should never see a bare "I cannot…" refusal.
+const REFUSAL = /\b(i (cannot|can'?t|can ?not|won'?t|will not|am unable|am not able)|as an ai\b|i'?m sorry,? but|i am sorry,? but|not comfortable|can'?t (create|generate|produce|provide|assist|help)|unable to (create|generate|provide)|i must decline|i'?d rather not|i don'?t feel comfortable)\b/i;
+function looksLikeRefusal(t) { return !!t && t.length < 320 && REFUSAL.test(t); }
 
 export function createAI({ net, getAuthority, tools }) {
   let tierInfo = { tier: 0, model: null, reason: "not initialized" };
@@ -48,8 +54,16 @@ export function createAI({ net, getAuthority, tools }) {
   // trigger a multi-GB download implicitly; loading is explicit via load().
   async function localGen(spec) {
     if (!llm || tierInfo.tier === 0 || llm.status !== "ready") return null;
-    try { return await llm.generate(messages(spec), { max: spec.max || 80, temp: spec.temp, timeout: 25000 }); }
-    catch (_) { return null; }
+    const run = (m) => llm.generate(m, { max: spec.max || 80, temp: spec.temp, timeout: 25000 });
+    try {
+      let out = await run(messages(spec));
+      if (looksLikeRefusal(out)) {
+        // model balked at explicit → retry a tamer, flirty-but-clean version so
+        // you still get fresh AI content (not the canned deck), no disclaimers.
+        out = await run([{ role: "system", content: "You are Cupid for a couple. Reply with ONE short, flirty but CLEAN (non-explicit, PG-13) line only — no refusals, no disclaimers, just the line." }, { role: "user", content: spec.user }]);
+      }
+      return looksLikeRefusal(out) ? null : out;   // still refusing → caller falls back to the static deck
+    } catch (_) { return null; }
   }
 
   const api = {

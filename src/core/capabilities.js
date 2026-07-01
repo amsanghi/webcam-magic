@@ -47,8 +47,12 @@ export const MODELS = {
   1: { engine: "transformers", model: "onnx-community/Qwen2.5-0.5B-Instruct", approxMB: 400 },
 };
 
+// localStorage `wm_ai_model` overrides the tier-2 (WebLLM) model id — e.g. set
+// it to a less-censored model like "Hermes-3-Llama-3.1-8B-q4f16_1-MLC".
 function tierInfo(tier, reason) {
-  return { tier, reason, model: MODELS[tier] || null };
+  let model = MODELS[tier] || null;
+  if (tier === 2 && model) { let ov = null; try { ov = localStorage.getItem("wm_ai_model"); } catch (_) {} if (ov) model = { ...model, model: ov }; }
+  return { tier, reason, model };
 }
 
 /**
