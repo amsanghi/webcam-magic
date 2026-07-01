@@ -68,7 +68,7 @@ export function pictionaryMode() {
   return {
     enter() { strokes = []; cur = { 0: null, 1: null }; isDrawer = false; word = ""; revealed = false; score = 0; },
     async action(a) {
-      if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); }
+      if (a === "word") { isDrawer = true; word = pick(WORDS); revealed = false; strokes = []; host.ai.ask({ system: "Give ONE simple, easily-drawable noun for Pictionary. Just the single word, lowercase.", user: "one word", max: 6, temp: 1.15 }, () => pick(WORDS)).then((w) => { word = (String(w).toLowerCase().trim().split(/\s+/)[0]) || pick(WORDS); }); net.send({ t: "pic-role" }); net.send({ t: "draw-clear" }); }
       else if (a === "reveal") { revealed = true; net.send({ t: "pic-reveal", w: word }); }
       else if (a === "clear") { strokes = []; net.send({ t: "draw-clear" }); }
       else if (a === "guess") { if (isDrawer) return; const g = await host.ask("Your guess:"); if (g) net.send({ t: "pic-guess", g }); }
@@ -103,7 +103,12 @@ export function mailboxMode() {
   let inbox = [];
   return {
     enter() { inbox = load(); },
-    async action(a) { if (a === "write") { const v = await host.ask("Write a love note for your partner:", { multiline: true }); if (v) { net.send({ t: "letter", text: v }); FX.travel({ x: W * 0.25, y: H * 0.5 }, () => ({ x: W, y: H * 0.4 }), "💌"); FX.banner(W / 2, H * 0.3, "sent 💌"); FX.Sound.chime(); } } },
+    async action(a) {
+      let text = null;
+      if (a === "write") text = await host.ask("Write a love note for your partner:", { multiline: true });
+      else if (a === "ai") text = await host.ai.ask({ user: "Write a short, heartfelt love note (2-3 sentences) to my partner.", max: 80, temp: 1.0 }, () => "Thinking of you every second we're apart — can't wait to hold you again 💕");
+      if (text) { net.send({ t: "letter", text }); FX.travel({ x: W * 0.25, y: H * 0.5 }, () => ({ x: W, y: H * 0.4 }), "💌"); FX.banner(W / 2, H * 0.3, "sent 💌"); FX.Sound.chime(); if (a === "ai" && host.chat) host.chat.say("ai", "💌 " + text); }
+    },
     onNet(m) { if (m.t === "letter") { inbox.push({ text: m.text }); save(inbox); FX.travel({ x: 0, y: H * 0.4 }, () => ({ x: W * 0.25, y: H * 0.5 }), "💌", () => { FX.banner(W / 2, H * 0.3, "💌 new note!"); FX.flood(0, W, ["💕"], 14); }); FX.Sound.chime(); } },
     draw(ctx) {
       ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "22px system-ui"; ctx.fillText("💌 Love Mailbox — “write” to send a note", W / 2, 48);
@@ -124,7 +129,7 @@ export function bucketMode() {
   const rowY = (i) => 120 + i * 46;
   return {
     enter() { items = load(); },
-    async action(a) { if (a === "add") { const v = await host.ask("Add something to do together:"); if (v) { items.push({ t: v, done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "clear") { items = []; save(); net.send({ t: "bucket", items }); } },
+    async action(a) { if (a === "add") { const v = await host.ask("Add something to do together:"); if (v) { items.push({ t: v, done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "ai") { const v = await host.ai.ask({ user: "Suggest ONE fun thing for a long-distance couple to add to their bucket list. A few words.", max: 24, temp: 1.15 }, () => pick(["watch a sunrise together on call", "learn a dance over video", "cook the same meal apart", "plan our reunion trip", "read the same book aloud"])); if (v) { items.push({ t: v.trim(), done: false }); save(); net.send({ t: "bucket", items }); } } else if (a === "clear") { items = []; save(); net.send({ t: "bucket", items }); } },
     onNet(m) { if (m.t === "bucket") { items = m.items || []; save(); } },
     update(dt, local) {
       const d = local && local.pinch && local.pinch.active;
@@ -196,8 +201,8 @@ export const modes = {
   "lovecalc": { cat: "Couple", ic: "❤️", nm: "Love Calc", how: ["Enter both names", "See your (very flattering) compatibility %"], actions: [["calc", "❤️ calc"]], make: loveCalcMode },
   "spinner": { cat: "Couple", ic: "🎡", nm: "Date Spinner", how: ["Spin for a random date-night idea"], actions: [["spin", "🎡 spin"]], make: spinnerMode },
   "pictionary": { cat: "Couple", ic: "🎨", nm: "Pictionary", how: ["One person: “new word”, then pinch to draw it", "The other: say it out loud or type a guess"], actions: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]], make: pictionaryMode },
-  "mailbox": { cat: "Couple", ic: "💌", nm: "Mailbox", how: ["“write” a love note → delivered to your partner", "Saved here so you can re-read them"], actions: [["write", "💌 write"]], make: mailboxMode },
-  "bucket": { cat: "Couple", ic: "🪣", nm: "Bucket List", how: ["“add” things to do together", "Pinch an item to check it off (synced)"], actions: [["add", "➕ add"], ["clear", "🗑"]], make: bucketMode },
+  "mailbox": { cat: "Couple", ic: "💌", nm: "Mailbox", how: ["“write” a love note → delivered to your partner (or 🤖 let AI draft one)", "Saved here so you can re-read them"], actions: [["write", "💌 write"], ["ai", "🤖 write for me"]], make: mailboxMode },
+  "bucket": { cat: "Couple", ic: "🪣", nm: "Bucket List", how: ["“add” things to do together (or 🤖 for an AI idea)", "Pinch an item to check it off (synced)"], actions: [["add", "➕ add"], ["ai", "🤖 suggest"], ["clear", "🗑"]], make: bucketMode },
   "dressup": { cat: "Couple", ic: "👒", nm: "Dress-Up", how: ["Cycle through hats", "Match your partner's hat to twin 👯"], actions: [["next", "👒 next hat"], ["off", "off"]], make: dressUpMode },
   "wish": { cat: "Couple", ic: "🙏", nm: "Make a Wish", how: ["Both press your palms together 🙏", "A shooting star grants your shared wish"], make: wishMode },
   "handsup": { cat: "Couple", ic: "🙌", nm: "Hands Up!", how: ["Both raise your hands at the same time", "Hype counter goes up with confetti 🥳"], make: handsUpMode },
