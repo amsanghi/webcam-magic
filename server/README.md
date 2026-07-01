@@ -49,8 +49,11 @@ The pill shows **AI on (server)**. Done forever — you never change this again.
 ```bash
 ./start.sh heavy    # → dolphin-mixtral:8x7b   (best)
 ./start.sh light    # → dolphin3:8b            (frees the Mac; unloads the heavy one)
+./stop.sh           # take the whole server offline (frees all RAM + drops the tunnel)
 ```
-Takes a couple of seconds; the next message uses the new model. Nothing on the website changes.
+Switching takes a couple of seconds; the next message uses the new model — nothing on the website
+changes. `stop.sh` shuts it down (the site then falls back to on-device/static); `start.sh` brings it
+back up (it also returns on its own after a reboot).
 
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.
