@@ -21,6 +21,8 @@ export function createAI({ net, getAuthority, tools }) {
   let tierInfo = { tier: 0, model: null, reason: "not initialized" };
   let llm = null;                 // in-browser engine (tiers 1-2)
   let serverUrl = "", serverModel = "";   // tier 3
+  let visionModel = "llama3.2-vision:11b";   // vision runs against the server, not the text `active` alias
+  try { visionModel = localStorage.getItem("wm_ai_vision_model") || visionModel; } catch (_) {}
   let peerTier = null;
   let amGen = false;
   const pending = new Map();
@@ -42,8 +44,14 @@ export function createAI({ net, getAuthority, tools }) {
 
   // Personalization woven into EVERY generation (all modes) — set once from the
   // stored couple profile, so replies use their names + vibe automatically.
-  let profileNote = "";
-  const messages = (spec) => [{ role: "system", content: (spec.system || AI_SYS) + profileNote }, { role: "user", content: spec.user }];
+  let profileNote = "", toneNote = "";
+  // Build the chat messages. If spec.image is a data-URL, send multimodal content
+  // (OpenAI/Ollama vision format) so a vision model can actually SEE the frame.
+  function messages(spec) {
+    const sys = (spec.system || AI_SYS) + toneNote + profileNote;
+    const user = spec.image ? [{ type: "text", text: spec.user }, { type: "image_url", image_url: { url: spec.image } }] : spec.user;
+    return [{ role: "system", content: sys }, { role: "user", content: user }];
+  }
 
   // one generation attempt against whatever engine this tier uses
   async function genOnce(spec, msgs) {
@@ -51,13 +59,13 @@ export function createAI({ net, getAuthority, tools }) {
     if (!llm || llm.status !== "ready") return null;
     return llm.generate(msgs, { max: spec.max || 80, temp: spec.temp, timeout: 25000 });
   }
-  async function serverCall(spec, msgs) {
+  async function serverCall(spec, msgs, modelOverride) {
     if (!serverUrl) return null;
     try {
       const r = await fetch(serverUrl.replace(/\/$/, "") + "/v1/chat/completions", {
         method: "POST", headers: { "Content-Type": "application/json", ...SERVER_HEADERS },
-        body: JSON.stringify({ model: serverModel, messages: msgs, temperature: spec.temp ?? 0.9, max_tokens: spec.max || 80, stream: false }),
-        signal: AbortSignal.timeout(45000),
+        body: JSON.stringify({ model: modelOverride || serverModel, messages: msgs, temperature: spec.temp ?? 0.9, max_tokens: spec.max || 80, stream: false }),
+        signal: AbortSignal.timeout(spec.image ? 60000 : 45000),
       });
       if (!r.ok) { console.warn("[wm-ai] server HTTP " + r.status + " — check the model name (" + serverModel + ") and OLLAMA_ORIGINS/CORS"); return null; }
       const j = await r.json();
@@ -121,6 +129,24 @@ export function createAI({ net, getAuthority, tools }) {
     setPeerTier(t) { peerTier = t; recompute(); },
     // Names/vibe threaded into every system prompt so the whole app feels personal.
     setProfile(a, b) { profileNote = (a && b) ? ` The two people are ${a} and ${b} — a couple. Use their names naturally, make it personal.` : (a ? ` One of them is ${a}.` : ""); },
+    // 👁 Vision: let the AI SEE a frame (data-URL). Server tier only (in-browser
+    // engines here are text-only); resolves to the fallback otherwise. Uses the
+    // configured vision model, not the text `active` alias.
+    async see(spec, fallback) {
+      const fb = () => (fallback ? fallback() : "");
+      if (tierInfo.tier !== 3 || !serverUrl || !spec || !spec.image) return fb();
+      try { const out = await serverCall({ temp: spec.temp ?? 0.7, max: spec.max || 90, image: spec.image }, messages(spec), visionModel); return (out && out.trim() && !looksLikeRefusal(out)) ? out.trim() : fb(); }
+      catch (_) { return fb(); }
+    },
+    setVisionModel(m) { if (m) { visionModel = m; try { localStorage.setItem("wm_ai_vision_model", m); } catch (_) {} } },
+    get visionModel() { return visionModel; },
+    // Spice dial → a tone directive prefixed onto every generation (0 sweet / 1
+    // flirty / 2 uncensored; AI_SYS is already uncensored so 2 adds nothing).
+    setTone(level) {
+      toneNote = level <= 0 ? " Right now keep it sweet and strictly PG — affectionate, zero explicit content."
+        : level === 1 ? " Right now keep it flirty and suggestive but not explicit."
+        : "";
+    },
 
     runActions(text) {
       let obj = null;
