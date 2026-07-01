@@ -832,21 +832,133 @@ export function createGames(net, host) {
   // helpers shared by modes
   function cursorPx(g, side) { const c = cursor(g); return c ? toCanvas(c, side) : null; }
   function pointPx(g, side) { if (g && g.point && g.point.active) return toCanvas(g.point, side); return cursorPx(g, side); }
-  function hint(ctx, txt) { ctx.save(); ctx.globalAlpha = 0.7; ctx.fillStyle = "#fff"; ctx.font = "15px system-ui"; ctx.textAlign = "center"; ctx.fillText(txt, W / 2, H - 24); ctx.restore(); }
+  // ================= GESTURE / VIDEO-DRIVEN GAMES =========================
+  // 🎯 TARGET TRACK — keep your fingertip on the moving ring (uses your hand + video position)
+  function targetTrackMode() {
+    let tgt = [{ x: .5, y: .5, vx: .22, vy: .16 }, { x: .5, y: .5, vx: -.18, vy: .2 }], score = [0, 0], bc = 0;
+    return {
+      enter() { score = [0, 0]; },
+      onNet(m) { if (m.t === "trk") { tgt = m.g; score = m.s; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        const cur = [cursor(local), cursor(remote)];
+        for (let s = 0; s < 2; s++) { const t = tgt[s]; t.x += t.vx * dt; t.y += t.vy * dt; if (t.x < .1 || t.x > .9) t.vx *= -1; if (t.y < .12 || t.y > .9) t.vy *= -1; t.x = clamp(t.x, .1, .9); t.y = clamp(t.y, .12, .9); const c = cur[s]; if (c && Math.abs(c.x - t.x) < .09 && Math.abs(c.y - t.y) < .11) score[s]++; }
+        bc += dt; if (bc > .08) { bc = 0; net.send({ t: "trk", g: tgt.map((t) => ({ x: +t.x.toFixed(3), y: +t.y.toFixed(3), vx: t.vx, vy: t.vy })), s: score }); }
+      },
+      draw(ctx) {
+        for (let s = 0; s < 2; s++) { const p = toCanvas(tgt[s], s); ctx.save(); ctx.lineWidth = 6; ctx.strokeStyle = s === meIdx() ? "#7cff9d" : "#ff9a5c"; ctx.beginPath(); ctx.arc(p.x, p.y, 28, 0, 7); ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.fill(); ctx.restore(); }
+        scoreboard(ctx, score, null, "Target — keep your finger on the ring");
+      },
+    };
+  }
+
+  // 🙈 SIMON SAYS — do the pose only when "Simon says" (pose detection + inhibition)
+  function simonMode() {
+    const P = [["✊", "fist"], ["✋", "palm"], ["✌️", "peace"], ["👍", "thumbsUp"], ["🤟", "rockOn"]];
+    let pi = 0, simon = true, t = 0, score = [0, 0], judged = false, bc = 0;
+    const next = () => { pi = Math.floor(Math.random() * P.length); simon = Math.random() < 0.65; t = 2.4; judged = false; };
+    return {
+      enter() { score = [0, 0]; next(); },
+      onNet(m) { if (m.t === "ss") { pi = m.pi; simon = m.si; score = m.s; t = m.tt; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        t -= dt;
+        if (t <= 0 && !judged) { judged = true; const chk = (g, s) => { const did = g && g.poses && g.poses[P[pi][1]]; if ((simon && did) || (!simon && !did)) score[s]++; }; chk(local, 0); chk(remote, 1); FX.Sound.pop(); }
+        if (t <= -0.8) next();
+        bc += dt; if (bc > .12) { bc = 0; net.send({ t: "ss", pi, si: simon, s: score, tt: t }); }
+      },
+      draw(ctx) { scoreboard(ctx, score, null, "Simon Says"); big(ctx, (simon ? "Simon says: " : "just… ") + P[pi][0], simon ? "do it before time's up!" : "trick — do NOT do it 🙅"); },
+    };
+  }
+
+  // 🎈 KEEPY-UP — bat the balloon up with your hand (palm tracking + physics on video)
+  function balloonMode() {
+    const fresh = () => [{ x: .5, y: .3, vy: 0 }, { x: .5, y: .3, vy: 0 }];
+    let ball = fresh(), score = [0, 0], bc = 0;
+    return {
+      enter() { ball = fresh(); score = [0, 0]; },
+      onNet(m) { if (m.t === "bal") { ball = m.b; score = m.s; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        const cur = [cursor(local), cursor(remote)];
+        for (let s = 0; s < 2; s++) { const b = ball[s]; b.vy += 0.55 * dt; b.y += b.vy * dt; const c = cur[s]; if (c && Math.abs(c.x - b.x) < .13 && Math.abs(c.y - b.y) < .13 && b.vy > -0.2) { b.vy = -0.62; b.x = clamp(b.x + (b.x - c.x) * 0.6, .05, .95); score[s]++; FX.Sound.pop(); } if (b.y > 1.06) { b.x = .5; b.y = .3; b.vy = 0; } b.y = clamp(b.y, 0, 1.06); }
+        bc += dt; if (bc > .05) { bc = 0; net.send({ t: "bal", b: ball.map((b) => ({ x: +b.x.toFixed(3), y: +b.y.toFixed(3), vy: +b.vy.toFixed(3) })), s: score }); }
+      },
+      draw(ctx) { for (let s = 0; s < 2; s++) { const p = toCanvas(ball[s], s); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "54px serif"; ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.strokeText("🎈", p.x, p.y); ctx.fillStyle = "#fff"; ctx.fillText("🎈", p.x, p.y); } scoreboard(ctx, score, null, "Keepy-Up — bat the balloon with your hand"); },
+    };
+  }
+
+  // ⚡ REACTION DUEL — make a ✊ the instant it says GO (pose + reaction time, 2-player)
+  function reactionMode() {
+    let phase = "wait", t = 0, score = [0, 0], winner = -1, bc = 0;
+    const arm = () => { phase = "wait"; t = rnd(1.5, 4.5); winner = -1; };
+    return {
+      enter() { score = [0, 0]; arm(); },
+      onNet(m) { if (m.t === "rx") { phase = m.p; score = m.s; winner = m.w; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        t -= dt;
+        if (phase === "wait") { if (t <= 0) { phase = "go"; t = 3; } }
+        else if (phase === "go" && winner < 0) { const lf = local && local.poses && local.poses.fist, rf = remote && remote.poses && remote.poses.fist; if (lf) { winner = 0; score[0]++; } else if (rf) { winner = 1; score[1]++; } if (winner >= 0) { phase = "done"; t = 2.5; FX.confetti(W / 2, H / 2, 26); FX.Sound.chime(); } else if (t <= 0) { phase = "done"; t = 2; } }
+        else if (phase === "done" && t <= 0) arm();
+        bc += dt; if (bc > .1) { bc = 0; net.send({ t: "rx", p: phase, s: score, w: winner }); }
+      },
+      draw(ctx) {
+        scoreboard(ctx, score, null, "Reaction — ✊ the instant it says GO");
+        if (phase === "wait") big(ctx, "wait…", "get your ✊ ready");
+        else if (phase === "go") big(ctx, "GO! ✊", "make a fist NOW");
+        else big(ctx, winner < 0 ? "nobody 😅" : (winner === meIdx() ? "You won! ⚡" : "Partner won ⚡"), "");
+      },
+    };
+  }
+
+  // ---- shared UI helpers (consistent contrast, panels & alignment) --------
+  function roundRect(ctx, x, y, w, h, r) {
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function pill(ctx, txt, x, y, size) {          // dark rounded chip behind text
+    ctx.font = `${size}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const w = ctx.measureText(txt).width + size * 1.6;
+    ctx.fillStyle = "rgba(8,10,16,.55)"; roundRect(ctx, x - w / 2, y - size, w, size * 2, size); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.fillText(txt, x, y);
+  }
+  function outline(ctx, t, x, y, size) {         // bold white text w/ dark outline
+    ctx.font = `bold ${size}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(3, size * 0.15); ctx.strokeStyle = "rgba(0,0,0,.78)"; ctx.strokeText(t, x, y);
+    ctx.fillStyle = "#fff"; ctx.fillText(t, x, y);
+  }
+  function fit(ctx, t, max, size, bold) { ctx.font = `${bold ? "bold " : ""}${size}px system-ui`; while (size > 14 && ctx.measureText(t).width > max) { size -= 2; ctx.font = `${bold ? "bold " : ""}${size}px system-ui`; } return size; }
+  function hint(ctx, txt) { ctx.save(); pill(ctx, txt, W / 2, H - 30, 15); ctx.restore(); }
   function scoreboard(ctx, score, time, title) {
-    ctx.save(); ctx.fillStyle = "#fff"; ctx.font = "bold 30px system-ui"; ctx.textAlign = "center";
-    ctx.fillText(`${score[0]}`, W / 4, 56); ctx.fillText(`${score[1]}`, 3 * W / 4, 56);
-    ctx.font = "16px system-ui"; ctx.globalAlpha = .8; ctx.fillText(title + (time != null ? `  •  ${Math.max(0, Math.ceil(time))}s` : ""), W / 2, 40);
+    ctx.save();
+    pill(ctx, title + (time != null ? `  •  ${Math.max(0, Math.ceil(time))}s` : ""), W / 2, 30, 15);
+    outline(ctx, `${score[0]}`, W * 0.25, 84, 46); outline(ctx, `${score[1]}`, W * 0.75, 84, 46);
+    ctx.font = "14px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(255,255,255,.8)";
+    const mine = meIdx();
+    ctx.fillText(mine === 0 ? "you" : "partner", W * 0.25, 120); ctx.fillText(mine === 0 ? "partner" : "you", W * 0.75, 120);
     ctx.restore();
   }
-  function big(ctx, line1, line2) { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 14; ctx.font = "bold 56px system-ui"; ctx.fillText(line1, W / 2, H / 2); ctx.font = "22px system-ui"; ctx.globalAlpha = .85; ctx.fillText(line2, W / 2, H / 2 + 50); ctx.restore(); }
+  function big(ctx, line1, line2) {
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const maxW = W * 0.86;
+    const s1 = fit(ctx, line1 || "", maxW, 50, true), s2 = line2 ? fit(ctx, line2, maxW, 24, false) : 0;
+    ctx.font = `bold ${s1}px system-ui`; const w1 = ctx.measureText(line1 || "").width;
+    ctx.font = `${s2}px system-ui`; const w2 = line2 ? ctx.measureText(line2).width : 0;
+    const pw = Math.min(W * 0.95, Math.max(w1, w2) + 60), ph = (line2 ? s1 + s2 + 44 : s1 + 40), cx = W / 2, cy = H * 0.46;
+    ctx.fillStyle = "rgba(8,10,16,.55)"; roundRect(ctx, cx - pw / 2, cy - ph / 2, pw, ph, 22); ctx.fill();
+    outline(ctx, line1 || "", cx, cy - (line2 ? s2 * 0.7 : 0), s1);
+    if (line2) { ctx.font = `${s2}px system-ui`; ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(line2, cx, cy + s1 * 0.5); }
+    ctx.restore();
+  }
 
   const factories = { share: createShareMode(net, () => authority ? 0 : 1), toys: toysMode, draw: drawMode, stamp: stampMode, catch: catchMode, pop: popMode, hockey: hockeyMode, rps: rpsMode, dontlaugh: dontLaughMode, mirror: mirrorMode, photobooth: photoboothMode, synctest: syncTestMode, thumbwar: thumbWarMode, spinner: spinnerMode,
     dressup: dressUpMode, slowdance: slowDanceMode, truthdare: truthDareMode, eightball: eightBallMode, tictactoe: ticTacToeMode,
     mashup: mashupMode, countdown: countdownMode, pictionary: pictionaryMode, breathing: breathingMode, karaoke: karaokeMode, kisscam: kissCamMode, mood: moodMode, pickup: pickupMode,
     oursong: ourSongMode, mailbox: mailboxMode, stars: starsMode, dancebattle: danceBattleMode, lovecalc: loveCalcMode,
     scrapbook: scrapbookMode, bucket: bucketMode,
-    loversdice: loversDiceMode, wyr: wyrMode, never: neverMode, dareroulette: dareRouletteMode };
+    loversdice: loversDiceMode, wyr: wyrMode, never: neverMode, dareroulette: dareRouletteMode,
+    target: targetTrackMode, simon: simonMode, balloon: balloonMode, reaction: reactionMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
