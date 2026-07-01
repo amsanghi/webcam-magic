@@ -643,6 +643,14 @@ const MODE_INFO = {
   twotruths: { ic: "🕵️", nm: "Two Truths & a Lie", cat: "Talk & connect 💬", how: ["Write two truths and a lie about yourself", "Partner guesses which is the lie"] },
   story: { ic: "📖", nm: "Story Builder", cat: "Talk & connect 💬", how: ["Build a silly story together", "Take turns adding one sentence each"] },
   telepathy: { ic: "🧠", nm: "Telepathy", cat: "Talk & connect 💬", how: ["A category appears — both name the same thing", "Match = you're on the same wavelength 🎉"] },
+  connect4: { ic: "🔴", nm: "Connect Four", cat: "Games", how: ["Take turns — point to a column & pinch to drop", "First to line up four wins"] },
+  memory: { ic: "🧠", nm: "Memory Match", cat: "Games", how: ["Take turns flipping two cards (point & pinch)", "Find a pair to score and go again"] },
+  trivia: { ic: "🧩", nm: "Trivia", cat: "Games", how: ["A question with 3 options appears", "Both answer by holding up 1, 2, or 3 fingers"] },
+  vault: { ic: "🔒", nm: "The Vault", cat: "Games", how: ["Co-op! Each of you sees only HALF the code", "Tell each other, then one of you enters all 4 digits"] },
+  howwell: { ic: "🤔", nm: "How Well Do You Know Me", cat: "Talk & connect 💬", how: ["One answers a question about themselves (secret)", "The other guesses — see if you match"] },
+  whomore: { ic: "⚖️", nm: "Who's More Likely", cat: "Talk & connect 💬", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"] },
+  thisorthat: { ic: "🔀", nm: "This or That", cat: "Talk & connect 💬", how: ["Quick-fire preferences", "Pick ☝️ left / ✌️ right — build a match streak"] },
+  hangman: { ic: "🔡", nm: "Hangman", cat: "Talk & connect 💬", how: ["One sets a secret word", "The other guesses letters before the hearts run out"] },
   kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
   mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
   lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
@@ -705,6 +713,9 @@ const MODE_ACTIONS = {
   twentyq: [["ask", "➕ asked"], ["swap", "🔄 swap"], ["reset", "↺"]],
   twotruths: [["enter", "✍️ enter"], ["reveal", "👀 reveal"]],
   story: [["add", "✍️ add"], ["clear", "🗑"]], telepathy: [["go", "🧠 new"], ["answer", "✍️ answer"]],
+  vault: [["new", "🔒 new code"], ["enter", "🔢 enter"]], connect4: [["reset", "↺ reset"]], memory: [["reset", "↺ reset"]],
+  trivia: [["go", "🧩 go"]], howwell: [["go", "🤔 new"], ["answer", "✍️ answer"]], whomore: [["go", "⚖️ go"]], thisorthat: [["go", "🔀 go"]],
+  hangman: [["set", "🔡 set word"], ["guess", "🔠 guess"]],
 };
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
