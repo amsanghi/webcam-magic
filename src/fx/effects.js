@@ -18,13 +18,42 @@ function rr(ctx, x, y, w, h, r) {           // rounded-rect path (canvas-native 
 const particles = [];
 const MAX_P = 1800;
 
+// The common *decorative* emoji get rendered as crisp glowing vector shapes
+// instead of OS emoji glyphs (looks far more modern). Expressive emoji (faces,
+// hands, objects) still render as emoji — they carry meaning. This is keyed off
+// the char so every existing spawner is upgraded with no call-site changes.
+const HEART_COLORS = { "❤️": "#ff4d6d", "💖": "#ff6ea8", "💕": "#ff86b8", "💗": "#ff9ec9", "💞": "#ff6ea8", "💓": "#ff5a7a", "🩷": "#ffa6cf", "💛": "#ffd85e", "🧡": "#ff9f45", "💜": "#b98cff", "💙": "#6aa8ff", "💚": "#5ad07a", "🤍": "#ffe6ef" };
+const CONFETTI_COLORS = { "🟥": "#ff5a5a", "🟦": "#5aa0ff", "🟨": "#ffd24b", "🟩": "#5ad07a", "🟪": "#b06bff", "🟧": "#ff9f45", "🟫": "#c08457" };
+const SPARK_SET = new Set(["✨", "⭐", "💫", "🌟", "✦", "⭐️"]);
+
 export function emoji(x, y, vx, vy, ch, size, life, g = 600, opts = {}) {
   if (particles.length >= MAX_P) return;
-  particles.push({
+  const p = {
     x, y, vx, vy, ch, size, life, max: life, g,
     rot: opts.rot ?? rnd(-0.5, 0.5), vr: opts.vr ?? rnd(-3, 3),
     spin: opts.spin || false, stick: opts.stick || null, pop: opts.pop !== false,
-  });
+  };
+  const hc = HEART_COLORS[ch], cc = CONFETTI_COLORS[ch];
+  if (hc) { p.kind = "heart"; p.color = hc; }
+  else if (SPARK_SET.has(ch)) { p.kind = "spark"; }
+  else if (cc) { p.kind = "confetti"; p.color = cc; }
+  particles.push(p);
+}
+
+// vector shapes centred at (0,0), sized by s
+function heartShape(ctx, s) {
+  const u = s / 32;
+  ctx.beginPath();
+  ctx.moveTo(0, 10 * u);
+  ctx.bezierCurveTo(-14 * u, -4 * u, -10 * u, -16 * u, 0, -8 * u);
+  ctx.bezierCurveTo(10 * u, -16 * u, 14 * u, -4 * u, 0, 10 * u);
+  ctx.closePath();
+}
+function sparkShape(ctx, s) {
+  const a = s * 0.58, b = s * 0.13;
+  ctx.beginPath();
+  ctx.moveTo(0, -a); ctx.quadraticCurveTo(b, -b, a, 0); ctx.quadraticCurveTo(b, b, 0, a);
+  ctx.quadraticCurveTo(-b, b, -a, 0); ctx.quadraticCurveTo(-b, -b, 0, -a); ctx.closePath();
 }
 export function flood(x0, x1, chars, n, big = false) {
   for (let i = 0; i < n; i++)
@@ -86,14 +115,28 @@ export function drawParticles(ctx) {
   for (const p of particles) {
     const t = p.life / p.max;
     const grow = p.pop ? Math.min(1, (1 - t) * 6) : 1;
+    const sz = p.size * (0.7 + 0.3 * grow);
     ctx.save();
     ctx.globalAlpha = t < 0.14 ? t / 0.14 : 1;          // full opacity until the last sliver of life
     ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    const sz = p.size * (0.7 + 0.3 * grow);
-    ctx.font = `${sz}px serif`;
-    ctx.lineJoin = "round"; ctx.lineWidth = Math.max(3, sz * 0.12);   // dark outline so it pops on any background
-    ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.strokeText(p.ch, 0, 0);
-    ctx.fillText(p.ch, 0, 0);
+    if (p.kind === "heart") {
+      ctx.shadowColor = p.color; ctx.shadowBlur = sz * 0.4;
+      ctx.fillStyle = p.color; heartShape(ctx, sz); ctx.fill();
+    } else if (p.kind === "spark") {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.shadowColor = "#ffe6a0"; ctx.shadowBlur = sz * 0.55;
+      ctx.fillStyle = "#fff4c8"; sparkShape(ctx, sz * 1.1); ctx.fill();
+    } else if (p.kind === "confetti") {
+      ctx.fillStyle = p.color;
+      const w = sz * 0.72, h = sz * 0.34;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, h * 0.45); ctx.fill(); }
+      else ctx.fillRect(-w / 2, -h / 2, w, h);
+    } else {
+      ctx.font = `${sz}px serif`;
+      ctx.lineJoin = "round"; ctx.lineWidth = Math.max(3, sz * 0.12);   // dark outline so it pops on any background
+      ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.strokeText(p.ch, 0, 0);
+      ctx.fillText(p.ch, 0, 0);
+    }
     ctx.restore();
   }
   drawTravel(ctx);
