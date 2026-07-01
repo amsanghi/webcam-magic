@@ -11,7 +11,7 @@
   <array>
     <string>/opt/homebrew/bin/ngrok</string>
     <string>http</string>
-    <string>11434</string>
+    <string>11435</string>
     <string>--url</string>
     <string>https://__NGROK_DOMAIN__</string>
     <string>--host-header=rewrite</string>
