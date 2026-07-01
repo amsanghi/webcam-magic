@@ -4,7 +4,7 @@ import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, ImageSe
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import * as FX from "./fx/effects.js";
 import * as G from "./perception/gestures.js";
-import { createGames } from "./modes/games.js";
+import { createGames, MODE_INFO, MODE_ACTIONS, CAT_ORDER } from "./modes/registry.js";
 import { createVoice } from "./perception/voice.js";
 const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
@@ -692,139 +692,8 @@ function showReady(mode) {
   $("readyHow").innerHTML = m.how.map((h) => `<li>${h}</li>`).join("");
 }
 
-// =====================================================================
-//  MODE INFO (icon, name, category, how-to — shown before the game)
-// =====================================================================
-const MODE_INFO = {
-  free: { ic: "✨", nm: "Free Play", cat: "Free play", how: ["Smile → sparkles, kiss → flying lips, laugh → screen shakes", "👋 wave, ✌️ peace, 👍/👎, 🤟 rock-on, 👉 point = laser, 🤙 finger-guns = confetti", "🫶 make a heart with both hands → hearts flood", "Frame your face = vignette, clap = applause, snap = spotlight", "Together: reach the centre to hold hands • both smile = rainbow • both heart = eruption"] },
-  share: { ic: "📎", nm: "Share", cat: "Create", how: ["Add an image, a PDF, or capture a window/screen", "Pinch to grab & move it", "Two hands: spread = resize, twist = rotate", "Open-palm swipe to flip PDF pages"] },
-  toys: { ic: "🧸", nm: "Toys", cat: "Create", how: ["Pinch to grab & throw objects", "Open palm = magnet", "Two hands: spread = resize, twist = rotate", "Shake your head to scatter • drop one on your nose to wear it"] },
-  draw: { ic: "✏️", nm: "Draw", cat: "Create", how: ["Pinch to paint together on a shared canvas", "Use “clear” to wipe it"] },
-  stamp: { ic: "🏷️", nm: "Stamp", cat: "Create", how: ["Pinch to drop a sticker", "“next” cycles the sticker"] },
-  stars: { ic: "✨", nm: "Our Stars", cat: "Create", how: ["Pinch to place a star on the night sky", "Together you draw a constellation"] },
-  oursong: { ic: "🎶", nm: "Our Song", cat: "Create", how: ["Name your song", "Play it out loud — the vinyl & bars dance to the beat"] },
-  scrapbook: { ic: "📔", nm: "Scrapbook", cat: "Create", how: ["Close your eyes (or use Photo Booth) to snap moments — they save here", "◀ ▶ to flip • ⬇ save to download to your Photos"] },
-  catch: { ic: "🍓", nm: "Catch", cat: "Games", how: ["Treats fall from the top", "Catch them with your hand — most catches wins"] },
-  pop: { ic: "🫧", nm: "Pop", cat: "Games", how: ["Bubbles float up", "Point your finger to pop them"] },
-  hockey: { ic: "🏒", nm: "Air Hockey", cat: "Games", how: ["Your palm is the paddle", "Block the puck and knock it past your partner"] },
-  rps: { ic: "✊", nm: "Rock Paper Scissors", cat: "Games", how: ["Press “go” for a 3·2·1 countdown", "Throw ✊ fist / ✋ palm / ✌️ scissors"] },
-  dontlaugh: { ic: "😐", nm: "Don't Laugh", cat: "Games", how: ["First one to smile or laugh loses…", "…and gets a clown filter 🤡"] },
-  mirror: { ic: "🪞", nm: "Mirror Me", cat: "Games", how: ["Match the pose shown before time runs out", "Score as many as you can"] },
-  tictactoe: { ic: "#️⃣", nm: "Tic-Tac-Toe", cat: "Games", how: ["Take turns — pinch a cell to place your mark", "First three in a row wins"] },
-  thumbwar: { ic: "👍", nm: "Thumb War", cat: "Games", how: ["Both hold a 👍", "Hold it to push the thumb to your partner's side & pin them"] },
-  dancebattle: { ic: "🕺", nm: "Dance Battle", cat: "Games", how: ["A move is called out each round", "Match it in time — score vs your partner"] },
-  synctest: { ic: "💘", nm: "Sync Test", cat: "Games", how: ["A cute question appears", "Both answer with a finger count — match = in sync!"] },
-  photobooth: { ic: "📸", nm: "Photo Booth", cat: "Games", how: ["Press for a 3·2·1 countdown", "Strike a pose — it saves a framed photo to your Scrapbook"] },
-  target: { ic: "🎯", nm: "Target Track", cat: "Games", how: ["A ring drifts around your side", "Keep your fingertip on it — most seconds-on-target wins"] },
-  simon: { ic: "🙈", nm: "Simon Says", cat: "Games", how: ["Do the pose ONLY when it says “Simon says”", "Do it on a trick round and you miss the point"] },
-  balloon: { ic: "🎈", nm: "Keepy-Up", cat: "Games", how: ["A balloon falls on your side", "Bat it up with your hand — most hits before it drops wins"] },
-  reaction: { ic: "⚡", nm: "Reaction Duel", cat: "Games", how: ["Wait for it…", "Make a ✊ the instant it says GO — fastest wins the round"] },
-  winkbattle: { ic: "😉", nm: "Wink Duel", cat: "Games", how: ["Wait for GO, then 😉 wink", "First to wink wins the round"] },
-  charades: { ic: "🎭", nm: "Charades", cat: "Games", how: ["“new prompt” → act it out silently with gestures & face", "Partner guesses out loud • “reveal” the answer"] },
-  freeze: { ic: "🧊", nm: "Freeze", cat: "Games", how: ["On FREEZE, hold perfectly still", "Move your hands and you're out — last still wins"] },
-  rhythm: { ic: "🥁", nm: "Rhythm", cat: "Games", how: ["A circle pulses to a beat", "👏 clap in time — score for on-beat claps"] },
-  wish: { ic: "🙏", nm: "Make a Wish", cat: "Couple", how: ["Both press your palms together 🙏", "A shooting star grants your shared wish"] },
-  handsup: { ic: "🙌", nm: "Hands Up!", cat: "Couple", how: ["Both raise your hands at the same time", "Hype counter goes up with confetti 🥳"] },
-  q36: { ic: "💞", nm: "36 Questions", cat: "Talk & connect 💬", how: ["The famous set that “leads to love” (Arthur Aron)", "Take turns answering honestly • end with 4 min eye contact 👀"] },
-  deeptalk: { ic: "💬", nm: "Deep Talk", cat: "Talk & connect 💬", how: ["A gentle connection prompt each time", "Take turns answering"] },
-  twentyq: { ic: "🙋", nm: "20 Questions", cat: "Talk & connect 💬", how: ["One of you thinks of something", "The other asks up to 20 yes/no questions to guess it"] },
-  twotruths: { ic: "🕵️", nm: "Two Truths & a Lie", cat: "Talk & connect 💬", how: ["Write two truths and a lie about yourself", "Partner guesses which is the lie"] },
-  story: { ic: "📖", nm: "Story Builder", cat: "Talk & connect 💬", how: ["Build a silly story together", "Take turns adding one sentence each"] },
-  telepathy: { ic: "🧠", nm: "Telepathy", cat: "Talk & connect 💬", how: ["A category appears — both name the same thing", "Match = you're on the same wavelength 🎉"] },
-  connect4: { ic: "🔴", nm: "Connect Four", cat: "Games", how: ["Take turns — point to a column & pinch to drop", "First to line up four wins"] },
-  memory: { ic: "🧠", nm: "Memory Match", cat: "Games", how: ["Take turns flipping two cards (point & pinch)", "Find a pair to score and go again"] },
-  trivia: { ic: "🧩", nm: "Trivia", cat: "Games", how: ["A question with 3 options appears", "Both answer by holding up 1, 2, or 3 fingers"] },
-  vault: { ic: "🔒", nm: "The Vault", cat: "Games", how: ["Co-op! Each of you sees only HALF the code", "Tell each other, then one of you enters all 4 digits"] },
-  howwell: { ic: "🤔", nm: "How Well Do You Know Me", cat: "Talk & connect 💬", how: ["One answers a question about themselves (secret)", "The other guesses — see if you match"] },
-  whomore: { ic: "⚖️", nm: "Who's More Likely", cat: "Talk & connect 💬", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"] },
-  thisorthat: { ic: "🔀", nm: "This or That", cat: "Talk & connect 💬", how: ["Quick-fire preferences", "Pick ☝️ left / ✌️ right — build a match streak"] },
-  hangman: { ic: "🔡", nm: "Hangman", cat: "Talk & connect 💬", how: ["One sets a secret word", "The other guesses letters before the hearts run out"] },
-  sayit: { ic: "🗣️", nm: "Say It First", cat: "New senses 🎙️", how: ["A word appears — first to SAY it out loud wins", "Uses your mic (Chrome/Edge)"] },
-  decipher: { ic: "🧩", nm: "Decipher", cat: "New senses 🎙️", how: ["A riddle/scramble appears", "First to SAY the answer wins (mic)"] },
-  treasure: { ic: "🔍", nm: "Treasure Hunt", cat: "New senses 🎙️", how: ["“Bring me a banana!” — grab the object & show your camera", "First to show it wins (object recognition)"] },
-  distance: { ic: "🌍", nm: "Distance", cat: "New senses 🎙️", how: ["Both allow location", "See exactly how far apart you are 🥺 (only shared with each other)"] },
-  tilt: { ic: "📱", nm: "Tilt Maze", cat: "New senses 🎙️", how: ["On phones: “enable”, then tilt to roll the ball", "Reach the ring — most in the round wins"] },
-  shake: { ic: "📳", nm: "Shake Race", cat: "New senses 🎙️", how: ["On phones: “enable”, then “go”", "Shake your phone the most in 5 seconds"] },
-  poseparty: { ic: "🧍", nm: "Pose Party", cat: "New senses 🎙️", how: ["Stand back so your whole body is in frame", "First to strike the called-out pose wins (body tracking)"] },
-  holewall: { ic: "🕳️", nm: "Hole in the Wall", cat: "New senses 🎙️", how: ["Step back so your whole body shows", "A hole shape appears — pose so your silhouette fits before the wall hits!"] },
-  flappy: { ic: "🐤", nm: "Mouth Flappy", cat: "New senses 🎙️", how: ["Open your mouth to flap the bird up", "Fly through the pipe gaps — highest score wins"] },
-  colorhunt: { ic: "🎨", nm: "Color Hunt", cat: "New senses 🎙️", how: ["“Show me something RED!”", "Hold something that color to your camera — fastest wins"] },
-  note: { ic: "🎵", nm: "Match the Note", cat: "New senses 🎙️", how: ["A note plays — hum it back", "Hold the right pitch to score (uses your mic)"] },
-  scream: { ic: "📣", nm: "Scream Meter", cat: "New senses 🎙️", how: ["Press “go”, then cheer!", "Loudest in 5 seconds wins"] },
-  typing: { ic: "⌨️", nm: "Typing Race", cat: "New senses 🎙️", how: ["A phrase appears — just start typing", "First to type it correctly wins"] },
-  tapattack: { ic: "🎯", nm: "Tap Attack", cat: "New senses 🎙️", how: ["Tap the dots on your side (mouse/touch)", "Most taps in 20 seconds wins"] },
-  lovetap: { ic: "💓", nm: "Love Tap", cat: "Couple", how: ["Press send to buzz your partner's phone 📳", "A little haptic “thinking of you”"] },
-  kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
-  mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
-  lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
-  spinner: { ic: "🎡", nm: "Date Spinner", cat: "Couple", how: ["Spin for a random date-night idea"] },
-  pictionary: { ic: "🎨", nm: "Pictionary", cat: "Couple", how: ["One person: “new word”, then pinch to draw it", "The other: say it out loud or type a guess"] },
-  mailbox: { ic: "💌", nm: "Mailbox", cat: "Couple", how: ["“write” a love note → delivered to your partner", "Saved here so you can re-read them"] },
-  bucket: { ic: "🪣", nm: "Bucket List", cat: "Couple", how: ["“add” things to do together", "Pinch an item to check it off (synced)"] },
-  dressup: { ic: "👒", nm: "Dress-Up", cat: "Couple", how: ["Cycle through hats", "Match your partner's hat to twin 👯"] },
-  truthdare: { ic: "😈", nm: "Truth or Dare", cat: "After dark 🌶️", how: ["Press truth or dare for a flirty prompt", "Read it out and do it 😏"] },
-  pickup: { ic: "💘", nm: "Pick-up Lines", cat: "After dark 🌶️", how: ["Press for a flirty line / pick-up", "Delivered to your partner too 😘"] },
-  dareroulette: { ic: "🌶️", nm: "Dare Roulette", cat: "After dark 🌶️", how: ["Spin the wheel of bold dares", "Whatever it lands on… you do 😈"] },
-  loversdice: { ic: "🎲", nm: "Lovers' Dice", cat: "After dark 🌶️", how: ["Roll for an action × a spot", "e.g. “slow-kiss the neck” — act it out 😏"] },
-  wyr: { ic: "😏", nm: "Would You Rather", cat: "After dark 🌶️", how: ["A flirty this-or-that appears", "Vote with fingers: ☝️ left, ✌️ right — see if you match"] },
-  never: { ic: "🙈", nm: "Never Have I Ever", cat: "After dark 🌶️", how: ["A spicy confession appears each round", "Say 'I have' or 'I haven't' 😏"] },
-  slowdance: { ic: "💃", nm: "Slow Dance", cat: "Chill", how: ["Warm romantic ambiance", "Play music and sway — hearts pulse to the beat"] },
-  mood: { ic: "🕯️", nm: "Mood", cat: "Chill", how: ["Candlelit ambiance, just the two of you"] },
-  breathing: { ic: "🧘", nm: "Breathe", cat: "Chill", how: ["Follow the ring — in, hold, out", "Breathe together to relax"] },
-  karaoke: { ic: "🎤", nm: "Karaoke", cat: "Chill", how: ["Paste some lyrics", "They scroll like a teleprompter"] },
-  countdown: { ic: "⏳", nm: "Countdown", cat: "Chill", how: ["Set the date you'll next meet", "It counts down the days 🥹"] },
-};
-// each Free effect, playable on its own (mode id "fx:<id>")
-const FEATURES = [
-  ["smile", "😀", "Sparkle Smile", "Smile → sparkles rain (bigger smile = more)"],
-  ["kiss", "💋", "Flying Kisses", "Pucker/kiss → lips fly from your mouth"],
-  ["brow", "😮", "Shock", "Raise your eyebrows → 😮 and a pop"],
-  ["blink", "😉", "Camera Flash", "Hard blink → flash + a 📸 snapshot"],
-  ["tongue", "😝", "Raspberry", "Stick your tongue out → 😜 + raspberry"],
-  ["laugh", "😂", "Laugh Riot", "Open-mouth laugh → 😂 balloons + screen shake"],
-  ["frown", "☔", "Rain Cloud", "Frown → a rain cloud parks over your head"],
-  ["zoned", "💤", "Zzz", "Zone out → a 💤 floats up"],
-  ["wave", "👋", "Glitter Wave", "Open-hand wave → a glitter trail + 'hi!'"],
-  ["guns", "🤙", "Finger Guns", "Finger-guns → confetti shots"],
-  ["peace", "✌️", "Peace Rain", "✌️ peace → peace signs rain down"],
-  ["thumbsup", "👍", "Thumbs Up", "👍 → a big +1 floats up"],
-  ["thumbsdown", "👎", "Thumbs Down", "👎 → boo + tomatoes"],
-  ["rockon", "🤟", "Rock On", "🤟 → flames + concert lights + riff"],
-  ["snap", "🫰", "Spotlight", "Snap pose → a spotlight on you"],
-  ["point", "👉", "Laser Pointer", "Point → a laser dot follows your finger"],
-  ["clap", "👏", "Applause", "Clap your hands → applause + 👏"],
-  ["frame", "🖼️", "Glam Vignette", "Frame your face with both hands → vignette"],
-  ["circle", "🔮", "Orb", "Make a circle with both hands → a glowing orb"],
-  ["squish", "🤏", "Cheek Squish", "Cup your face with both hands → squiish"],
-];
-const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "New senses 🎙️", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
-for (const [id, ic, nm, how] of FEATURES) MODE_INFO["fx:" + id] = { ic, nm, cat: "Single effects 🎯", how: [how, "It's the only effect on — everything else is off."] };
-const MODE_ACTIONS = {
-  share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
-  toys: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]],
-  draw: [["clear", "clear"]], stamp: [["next", "next"], ["clear", "clear"]],
-  rps: [["start", "go"]], photobooth: [["shoot", "📸 3·2·1"]], synctest: [["go", "go"]], spinner: [["spin", "🎡 spin"]],
-  dressup: [["next", "👒 next hat"], ["off", "off"]], truthdare: [["truth", "💬 truth"], ["dare", "🔥 dare"]], tictactoe: [["reset", "↺ reset"]],
-  mashup: [["go", "💞 mash"]], countdown: [["set", "📅 set date"]],
-  pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
-  karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
-  oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
-  scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["all", "⬇ all"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
-  sayit: [["go", "🗣️ go"]], decipher: [["go", "🧩 go"]], treasure: [["go", "🔍 go"]],
-  tilt: [["enable", "📱 enable"]], shake: [["enable", "📱 enable"], ["go", "📳 go"]],
-  flappy: [["go", "↻ restart"]], colorhunt: [["go", "🎨 go"]], note: [["go", "🎵 new note"]],
-  scream: [["go", "📣 go"]], typing: [["go", "⌨️ go"]], tapattack: [["go", "🎯 go"]], lovetap: [["tap", "💓 send"]],
-  holewall: [["go", "🕳️ go"]],
-  dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
-  charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
-  q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
-  twentyq: [["ask", "➕ asked"], ["swap", "🔄 swap"], ["reset", "↺"]],
-  twotruths: [["enter", "✍️ enter"], ["reveal", "👀 reveal"]],
-  story: [["add", "✍️ add"], ["clear", "🗑"]], telepathy: [["go", "🧠 new"], ["answer", "✍️ answer"]],
-  vault: [["new", "🔒 new code"], ["enter", "🔢 enter"]], connect4: [["reset", "↺ reset"]], memory: [["reset", "↺ reset"]],
-  trivia: [["go", "🧩 go"]], howwell: [["go", "🤔 new"], ["answer", "✍️ answer"]], whomore: [["go", "⚖️ go"]], thisorthat: [["go", "🔀 go"]],
-  hangman: [["set", "🔡 set word"], ["guess", "🔠 guess"]],
-};
+// Mode catalog (MODE_INFO / MODE_ACTIONS / CAT_ORDER) is assembled in
+// modes/registry.js from each topic file's co-located metadata.
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
   for (const cat of CAT_ORDER) {
