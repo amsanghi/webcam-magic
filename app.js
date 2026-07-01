@@ -447,7 +447,7 @@ const rp = (p) => p ? { x: r2(p.x), y: r2(p.y) } : null;
 function packet() {
   const g = localG, F = g.face, tw = g.two;
   return {
-    k: "g", present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
+    k: "g", pid: myPid, present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
     pinch: g.pinch.active ? { active: true, x: r2(g.pinch.x), y: r2(g.pinch.y) } : { active: false },
     point: g.point.active ? { active: true, x: r2(g.point.x), y: r2(g.point.y) } : { active: false },
     palm: rp(g.palm), hands: (g.hands || []).map(rp),
@@ -462,11 +462,24 @@ function packet() {
 }
 
 // ---- connection: race mqtt + torrent, retry fast until connected ----------
-let connectedOnce = false, reconnectTimer = null, reconnectAttempts = 0, roomWord = "", lastRx = 0;
+let connectedOnce = false, reconnectTimer = null, reconnectAttempts = 0, roomWord = "", lastRx = 0, lastConnectAt = 0;
+
+// Stable per-device id (survives reload/reconnect) → who's left/right & who judges
+// never changes mid-session, unlike Trystero's per-join selfId.
+let myPid = "";
+try { myPid = localStorage.getItem("wm_pid") || ""; } catch (_) {}
+if (!myPid) { try { myPid = (window.crypto && crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2); } catch (_) { myPid = String(Math.random()).slice(2); } try { localStorage.setItem("wm_pid", myPid); } catch (_) {} }
+let theirPid = "";
+function setRole(pid) {
+  if (!pid || pid === theirPid) return;
+  theirPid = pid;
+  amInitiator = myPid > theirPid;               // deterministic & identical on both ends
+  games.setAuthority(amInitiator); mySide = amInitiator ? 0 : 1;
+}
 function leaveRooms() { entries.forEach((e) => { try { e.room.leave(); } catch (_) {} }); entries = []; primary = null; sendMsg = null; }
 function route(data) {
   lastRx = Date.now();
-  if (data && data.k === "g") { remoteG = Object.assign(G.blankState(), data); remoteG.present = true; return; }
+  if (data && data.k === "g") { setRole(data.pid); remoteG = Object.assign(G.blankState(), data); remoteG.present = true; return; }
   if (!data) return;
   if (data.t === "nav") { navTo(data.screen, data.mode, true); return; }
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
@@ -475,6 +488,7 @@ function route(data) {
 function connect(word, stream) {
   if (word != null) roomWord = word; if (stream) localStream = stream;
   if (typeof Trystero === "undefined") { setConn("net failed"); return; }
+  lastConnectAt = Date.now();
   leaveRooms();
   const cfg = { appId: "webcam-magic", relayConfig: { redundancy: 6 } };
   const rid = roomId(roomWord);
@@ -487,7 +501,7 @@ function connect(word, stream) {
     const entry = { room: r, action, connected: false };
     r.onPeerJoin = (pid) => {
       entry.connected = true; connectedOnce = true; reconnectAttempts = 0; clearTimeout(reconnectTimer); lastRx = Date.now();
-      amInitiator = String(Trystero.selfId) > String(pid); games.setAuthority(amInitiator); mySide = amInitiator ? 0 : 1;
+      // role (side / who judges) comes from the stable pid exchanged in packets, not selfId
       if (!primary) { primary = entry; sendMsg = (o) => { const e = entries.find((x) => x.connected); if (e) e.action.send(o); }; }   // one transport only (no double-send)
       if (localStream) localStream.getTracks().forEach((tr) => { try { r.addTrack(tr, localStream, { target: pid }); } catch (_) {} });
       setConn("connected 💚");
@@ -506,7 +520,13 @@ function scheduleReconnect() {
 }
 // heartbeat: gesture packets stream constantly; if they go silent, rejoin
 setInterval(() => { if (sendMsg) sendMsg(packet()); }, 100);
-setInterval(() => { if (connectedOnce && Date.now() - lastRx > 9000) { connectedOnce = false; setConn("reconnecting…"); reconnectAttempts++; connect(); } }, 3000);
+setInterval(() => {
+  // only a genuinely silent link (12s) triggers a rejoin, and not more than once
+  // every 8s — avoids both ends flapping and tearing down working media.
+  if (connectedOnce && Date.now() - lastRx > 12000 && Date.now() - lastConnectAt > 8000) {
+    connectedOnce = false; setConn("reconnecting…"); reconnectAttempts++; connect();
+  }
+}, 3000);
 window.addEventListener("beforeunload", leaveRooms);
 
 // =====================================================================
