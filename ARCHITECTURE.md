@@ -33,7 +33,6 @@ src/
                       the ~90 mode factories, grouped by category, each with co-located metadata
   vendor/
     trystero.js       vendored serverless-WebRTC lib (do not edit)
-docs/                 HANDOFF.md (gotchas quick-ref), REFACTOR-HANDOFF.md (this refactor's brief)
 ```
 
 ## Data flow

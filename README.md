@@ -43,7 +43,7 @@ gh pr create --base main --head my-feature --title "…" --body "…"
 gh pr merge my-feature --merge --delete-branch
 ```
 
-Pages rebuilds in ~60–90s. Full conventions + gotchas live in [docs/HANDOFF.md](docs/HANDOFF.md).
+Pages rebuilds in ~60–90s. See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code fits together.
 
 ## Input systems
 
