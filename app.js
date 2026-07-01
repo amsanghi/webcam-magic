@@ -28,6 +28,7 @@ let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
 let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH screens, player 1 = right
 let soloFx = null;              // when set, Free play runs only this one feature
+let eyeCapOn = true, eyeClosedT = 0, eyeSnapped = false, snapCount = 0;   // "close eyes to snap"
 let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
 let combo = 0;
 
@@ -39,7 +40,7 @@ let sendMsg = null;
 const host = {
   snapshot: (name) => {
     canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
-    try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-12))); } catch (_) {}
+    try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-40))); } catch (_) {}
   },
   // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
   // the whole tab (stops packets), so the partner sees a silent link and reconnects.
@@ -407,6 +408,13 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
+  // 👁 global: hold your eyes closed ~0.7s (longer than a blink) to snap a photo
+  if (eyeCapOn && localG.face.present) {
+    if (localG.face.blink > 0.6) {
+      eyeClosedT += dt;
+      if (eyeClosedT > 0.7 && !eyeSnapped) { eyeSnapped = true; snapCount++; host.snapshot("moment-" + snapCount); FX.flash(); FX.banner(W / 2, H * 0.28, "📸 saved!"); FX.Sound.pop(); }
+    } else { eyeClosedT = 0; eyeSnapped = false; }
+  }
   squish[0] += (squishTarget[0] - squish[0]) * 0.25; squish[1] += (squishTarget[1] - squish[1]) * 0.25;
   if (fogTime > 0) { fogTime -= dt; if (localG.pinch.active) { const p = toCanvas(localG.pinch, 0); FX.wipeFog(0, p.x / MID, p.y / H); } else if (localG.palm) FX.wipeFog(0, localG.palm.x, localG.palm.y); if (fogTime <= 0) FX.setFog(0, false); }
 
@@ -588,7 +596,7 @@ const MODE_INFO = {
   stamp: { ic: "🏷️", nm: "Stamp", cat: "Create", how: ["Pinch to drop a sticker", "“next” cycles the sticker"] },
   stars: { ic: "✨", nm: "Our Stars", cat: "Create", how: ["Pinch to place a star on the night sky", "Together you draw a constellation"] },
   oursong: { ic: "🎶", nm: "Our Song", cat: "Create", how: ["Name your song", "Play it out loud — the vinyl & bars dance to the beat"] },
-  scrapbook: { ic: "📔", nm: "Scrapbook", cat: "Create", how: ["Your Photo Booth shots are saved here", "◀ ▶ to flip through your memories"] },
+  scrapbook: { ic: "📔", nm: "Scrapbook", cat: "Create", how: ["Close your eyes (or use Photo Booth) to snap moments — they save here", "◀ ▶ to flip • ⬇ save to download to your Photos"] },
   catch: { ic: "🍓", nm: "Catch", cat: "Games", how: ["Treats fall from the top", "Catch them with your hand — most catches wins"] },
   pop: { ic: "🫧", nm: "Pop", cat: "Games", how: ["Bubbles float up", "Point your finger to pop them"] },
   hockey: { ic: "🏒", nm: "Air Hockey", cat: "Games", how: ["Your palm is the paddle", "Block the puck and knock it past your partner"] },
@@ -655,7 +663,7 @@ const MODE_ACTIONS = {
   pictionary: [["word", "🎨 new word"], ["guess", "🗣 guess"], ["reveal", "👀 reveal"], ["clear", "clear"]],
   karaoke: [["lyrics", "🎤 lyrics"], ["restart", "↺"]], kisscam: [["start", "💋 start"]], pickup: [["go", "💘 line"]],
   oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
-  scrapbook: [["prev", "◀"], ["next", "▶"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
+  scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
   dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
 };
 function buildMenu() {
@@ -705,6 +713,7 @@ $("readyBack").addEventListener("click", () => navTo("menu"));
 $("menuBtn").addEventListener("click", () => navTo("menu"));
 $("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.45; });
 $("snapBtn").addEventListener("click", () => host.snapshot("webcam-magic"));
+$("eyeBtn").addEventListener("click", (e) => { eyeCapOn = !eyeCapOn; e.target.style.opacity = eyeCapOn ? 1 : 0.4; e.target.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; });
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("loveBtn2").addEventListener("click", sendSweet);
 $("confettiBtn2").addEventListener("click", fireConfetti);
