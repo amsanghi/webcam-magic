@@ -1,12 +1,13 @@
 // app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
 // couple cross-feed effects, mode/game switching, and Trystero networking.
-import { HandLandmarker, FaceLandmarker, ObjectDetector, FilesetResolver }
+import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import * as FX from "./effects.js";
 import * as G from "./gestures.js";
 import { createGames } from "./games.js";
 import { createVoice } from "./voice.js";
 const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -25,6 +26,7 @@ const RS = Math.min(window.innerWidth, window.innerHeight) < 820
   : Math.min(3, Math.max(2, window.devicePixelRatio || 1));
 canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
 ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+canvas.addEventListener("pointerdown", (e) => { const r = canvas.getBoundingClientRect(); host.pointer = { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, t: performance.now() }; });
 
 let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
@@ -76,6 +78,14 @@ const host = {
   voice: createVoice(),
   // 🔍 object detection — modes set want=true to have the loop populate labels[]
   objects: { want: false, labels: [] },
+  // 🧍 body pose — modes set want=true; lm[] = 33 normalized {x,y} landmarks
+  pose: { want: false, lm: [] },
+  // 🎤 live audio: level (0..1 loudness) always; pitch (Hz) only when want=true
+  audio: { level: 0, pitch: 0, want: false },
+  // 🖱️ last tap/click on the canvas, in logical (W×H) coords (mouse or touch)
+  pointer: { x: 0, y: 0, t: 0 },
+  // 🎨 dominant hue (0..360) of the centre of your video
+  videoHue: () => { try { const c = document.createElement("canvas"); c.width = 32; c.height = 32; const cx = c.getContext("2d"); cx.drawImage(localVideo, localVideo.videoWidth * .3, localVideo.videoHeight * .3, localVideo.videoWidth * .4, localVideo.videoHeight * .4, 0, 0, 32, 32); const d = cx.getImageData(0, 0, 32, 32).data; let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } r /= n; g /= n; b /= n; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn; if (dl < 18) return -1; let h = 0; if (mx === r) h = ((g - b) / dl) % 6; else if (mx === g) h = (b - r) / dl + 2; else h = (r - g) / dl + 4; h = (h * 60 + 360) % 360; return h; } catch (_) { return -1; } },
   // 📱 phone sensors + 🌍 GPS
   sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
   requestSensors: async () => {
@@ -298,6 +308,7 @@ function handleFreeNet(m) {
   else if (m.t === "toss") throws.push({ x: mySide === 0 ? MID - 20 : MID + 20, y: (m.yN || 0.5) * H, vx: mySide === 0 ? -300 : 300, vy: -120, ch: m.ch || "💖", s: 46 });
   else if (m.t === "love-msg") { FX.banner(W / 2, H * 0.3, m.text || "💌"); FX.flood(0, W, ["💕", "💗"], 20); FX.Sound.chime(); }
   else if (m.t === "confetti") { FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); }
+  else if (m.t === "buzz") { try { navigator.vibrate && navigator.vibrate([90, 50, 90]); } catch (_) {} FX.banner(W / 2, H * 0.3, "💓 love tap!"); FX.flood(0, W, ["💓", "💗"], 14); FX.Sound.pop(); }
   else if (m.t === "ritual") doRitual(m.kind, false);
 }
 function doRitual(kind, send) {
@@ -372,14 +383,26 @@ function updateAmbient() {
   if (d.getMonth() === 11) s = "❄️"; else if (md === 214) s = "💝"; else if (md === 101 || md === 704) s = "🎆"; else if (md === 1031) s = "🎃";
   if (s && Math.random() < 0.025) FX.emoji(FX.rnd(0, W), -20, FX.rnd(-10, 10), FX.rnd(40, 90), s, FX.rnd(20, 34), FX.rnd(3, 5), 30, { vr: 0 });
 }
-let analyser = null, beatBuf = null, beatEMA = 0, lastTotal = 0, clapCd = 0;
+let analyser = null, beatBuf = null, beatEMA = 0, lastTotal = 0, clapCd = 0, timeBuf = null, sampleRate = 44100;
 function initBeat(stream) {
   try {
     const a = new (window.AudioContext || window.webkitAudioContext)();
+    sampleRate = a.sampleRate;
     const src = a.createMediaStreamSource(stream);
-    analyser = a.createAnalyser(); analyser.fftSize = 256; beatBuf = new Uint8Array(analyser.frequencyBinCount);
+    analyser = a.createAnalyser(); analyser.fftSize = 2048; beatBuf = new Uint8Array(analyser.frequencyBinCount); timeBuf = new Float32Array(analyser.fftSize);
     src.connect(analyser);
   } catch (_) {}
+}
+// autocorrelation pitch detector (for "match the note" / hum games)
+function detectPitch() {
+  if (!analyser || !timeBuf) return 0;
+  analyser.getFloatTimeDomainData(timeBuf);
+  const N = timeBuf.length; let rms = 0; for (let i = 0; i < N; i++) rms += timeBuf[i] * timeBuf[i]; rms = Math.sqrt(rms / N);
+  host.audio.level = Math.min(1, rms * 4);
+  if (!host.audio.want || rms < 0.01) return 0;              // autocorr only when a pitch game is active
+  let best = -1, bestOff = -1;
+  for (let off = 8; off < 1000; off++) { let corr = 0; for (let i = 0; i < N - off; i++) corr += timeBuf[i] * timeBuf[i + off]; corr /= (N - off); if (corr > best) { best = corr; bestOff = off; } }
+  return bestOff > 0 ? sampleRate / bestOff : 0;
 }
 function stepBeat() {
   if (!analyser) return;
@@ -393,6 +416,7 @@ function stepBeat() {
   if (clapCd > 0) clapCd--;
   if (games.mode === "free" && fxOn && clapCd === 0 && tot - lastTotal > 0.16 && tot > 0.34) { clapCd = 30; FX.burst(W / 2, H * 0.4, ["👏", "🎉"], 12, 320); FX.Sound.applause(); }
   lastTotal = tot;
+  host.audio.pitch = detectPitch();
 }
 
 // =====================================================================
@@ -437,7 +461,7 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
-  stepObjects();
+  stepObjects(); stepPose();
   // 👁 global: close your eyes for a moment, then the photo snaps just AFTER you
   // reopen them (so your eyes are open in the shot). Silent — saved to Scrapbook.
   if (eyeCapOn && localG.face.present) {
@@ -498,6 +522,16 @@ function stepObjects() {
   if (localVideo.readyState < 2 || localVideo.currentTime === odLastT) return;
   odLastT = localVideo.currentTime;
   try { const r = objDet.detectForVideo(localVideo, performance.now() + 2); host.objects.labels = (r.detections || []).map((d) => d.categories[0] && d.categories[0].categoryName).filter(Boolean); } catch (_) {}
+}
+// pose detector — lazy (Pose Party / body games)
+let poseLM = null, poseLoading = false, poseLastT = -1;
+async function ensurePose() { if (poseLM || poseLoading) return; poseLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); poseLM = await PoseLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numPoses: 1 }); } catch (_) {} poseLoading = false; }
+function stepPose() {
+  if (!host.pose.want) return;
+  if (!poseLM) { ensurePose(); return; }
+  if (localVideo.readyState < 2 || localVideo.currentTime === poseLastT) return;
+  poseLastT = localVideo.currentTime;
+  try { const r = poseLM.detectForVideo(localVideo, performance.now() + 3); host.pose.lm = (r.landmarks && r.landmarks[0]) ? r.landmarks[0].map((p) => ({ x: 1 - p.x, y: p.y })) : []; } catch (_) {}
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -684,6 +718,14 @@ const MODE_INFO = {
   distance: { ic: "🌍", nm: "Distance", cat: "New senses 🎙️", how: ["Both allow location", "See exactly how far apart you are 🥺 (only shared with each other)"] },
   tilt: { ic: "📱", nm: "Tilt Maze", cat: "New senses 🎙️", how: ["On phones: “enable”, then tilt to roll the ball", "Reach the ring — most in the round wins"] },
   shake: { ic: "📳", nm: "Shake Race", cat: "New senses 🎙️", how: ["On phones: “enable”, then “go”", "Shake your phone the most in 5 seconds"] },
+  poseparty: { ic: "🧍", nm: "Pose Party", cat: "New senses 🎙️", how: ["Stand back so your whole body is in frame", "First to strike the called-out pose wins (body tracking)"] },
+  flappy: { ic: "🐤", nm: "Mouth Flappy", cat: "New senses 🎙️", how: ["Open your mouth to flap the bird up", "Fly through the pipe gaps — highest score wins"] },
+  colorhunt: { ic: "🎨", nm: "Color Hunt", cat: "New senses 🎙️", how: ["“Show me something RED!”", "Hold something that color to your camera — fastest wins"] },
+  note: { ic: "🎵", nm: "Match the Note", cat: "New senses 🎙️", how: ["A note plays — hum it back", "Hold the right pitch to score (uses your mic)"] },
+  scream: { ic: "📣", nm: "Scream Meter", cat: "New senses 🎙️", how: ["Press “go”, then cheer!", "Loudest in 5 seconds wins"] },
+  typing: { ic: "⌨️", nm: "Typing Race", cat: "New senses 🎙️", how: ["A phrase appears — just start typing", "First to type it correctly wins"] },
+  tapattack: { ic: "🎯", nm: "Tap Attack", cat: "New senses 🎙️", how: ["Tap the dots on your side (mouse/touch)", "Most taps in 20 seconds wins"] },
+  lovetap: { ic: "💓", nm: "Love Tap", cat: "Couple", how: ["Press send to buzz your partner's phone 📳", "A little haptic “thinking of you”"] },
   kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
   mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
   lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
@@ -742,6 +784,8 @@ const MODE_ACTIONS = {
   scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["all", "⬇ all"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
   sayit: [["go", "🗣️ go"]], decipher: [["go", "🧩 go"]], treasure: [["go", "🔍 go"]],
   tilt: [["enable", "📱 enable"]], shake: [["enable", "📱 enable"], ["go", "📳 go"]],
+  flappy: [["go", "↻ restart"]], colorhunt: [["go", "🎨 go"]], note: [["go", "🎵 new note"]],
+  scream: [["go", "📣 go"]], typing: [["go", "⌨️ go"]], tapattack: [["go", "🎯 go"]], lovetap: [["tap", "💓 send"]],
   dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
   charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
   q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
