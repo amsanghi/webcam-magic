@@ -186,6 +186,17 @@ button .icon { width: 1.05em; height: 1.05em; }
 .dots i:nth-child(3) { animation-delay: .36s; }
 @keyframes blink { 0%, 65%, 100% { opacity: .25; transform: translateY(0); } 32% { opacity: 1; transform: translateY(-3px); } }
 
+/* AI host action chips (its way to "do things") */
+.chips-row { align-items: flex-start; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip-action { display: inline-flex; align-items: center; gap: 6px; background: rgba(155, 107, 255, 0.15); color: #ece6ff; border: 1px solid rgba(155, 107, 255, 0.4); border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: none; }
+.chip-action:hover { background: rgba(155, 107, 255, 0.28); border-color: rgba(155, 107, 255, 0.62); transform: translateY(-1px); filter: none; }
+.chip-action .icon { width: 15px; height: 15px; }
+.chips-row.used { opacity: 0.5; }
+.chips-row.used .chip-action { pointer-events: none; }
+#directorBtn.on { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 6px 16px -6px rgba(155, 107, 255, 0.85); }
+#actionbar button .icon { width: 15px; height: 15px; }
+
 #askBar { display: flex; align-items: center; gap: 8px; margin: 10px 12px 0; padding: 9px 10px 9px 13px; background: rgba(155, 107, 255, 0.13); border: 1px solid rgba(155, 107, 255, 0.36); border-radius: 12px; animation: pop .2s ease both; }
 #askLabel { flex: 1; font-size: 13px; color: #e9e3ff; font-weight: 550; line-height: 1.35; }
 #askBar .icon-btn { width: 30px; height: 30px; }

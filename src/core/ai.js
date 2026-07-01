@@ -40,7 +40,10 @@ export function createAI({ net, getAuthority, tools }) {
   async function refresh() { applyTier(await detectTier()); return tierInfo; }
   async function configure(url, model) { setServer(url); if (model) setServerModel(model); return refresh(); }
 
-  const messages = (spec) => [{ role: "system", content: spec.system || AI_SYS }, { role: "user", content: spec.user }];
+  // Personalization woven into EVERY generation (all modes) — set once from the
+  // stored couple profile, so replies use their names + vibe automatically.
+  let profileNote = "";
+  const messages = (spec) => [{ role: "system", content: (spec.system || AI_SYS) + profileNote }, { role: "user", content: spec.user }];
 
   // one generation attempt against whatever engine this tier uses
   async function genOnce(spec, msgs) {
@@ -116,6 +119,8 @@ export function createAI({ net, getAuthority, tools }) {
 
     announce() { net.send({ t: "cap", tier: tierInfo.tier, reply: true, server: serverUrl || undefined, serverModel: serverUrl ? serverModel : undefined }); },
     setPeerTier(t) { peerTier = t; recompute(); },
+    // Names/vibe threaded into every system prompt so the whole app feels personal.
+    setProfile(a, b) { profileNote = (a && b) ? ` The two people are ${a} and ${b} — a couple. Use their names naturally, make it personal.` : (a ? ` One of them is ${a}.` : ""); },
 
     runActions(text) {
       let obj = null;
