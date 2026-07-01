@@ -721,14 +721,15 @@ export function createGames(net, host) {
   // ---------------- SCRAPBOOK (gallery of Photo Booth shots) ---------------
   function scrapbookMode() {
     let imgs = [], idx = 0;
-    const load = () => { try { return JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); } catch (_) { return []; } };
+    const loadThumbs = () => { try { return JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); } catch (_) { return []; } };
+    const srcs = () => (host && host.moments && host.moments.length) ? host.moments.map((m) => m.url) : loadThumbs();   // prefer full-res session moments
     return {
-      enter() { imgs = load().map((u) => { const i = new Image(); i.src = u; return i; }); idx = Math.max(0, imgs.length - 1); },
+      enter() { imgs = srcs().map((u) => { const i = new Image(); i.src = u; return i; }); idx = Math.max(0, imgs.length - 1); },
       action(a) {
         if (a === "prev") idx = Math.max(0, idx - 1);
         else if (a === "next") idx = Math.min(imgs.length - 1, idx + 1);
         else if (a === "save") { const im = imgs[idx]; if (im && im.src) { const el = document.createElement("a"); el.href = im.src; el.download = "webcam-magic-" + (idx + 1) + ".jpg"; el.click(); } }
-        else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} imgs = []; idx = 0; }
+        else if (a === "clear") { try { localStorage.removeItem("wm_scrapbook"); } catch (_) {} if (host && host.moments) host.moments.length = 0; imgs = []; idx = 0; }
       },
       draw(ctx) {
         ctx.textAlign = "center"; ctx.fillStyle = "#fff";
