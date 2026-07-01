@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent: the wm-media service (server/media/wm-media.js) on :8189.
+     proxy.js routes /img /tts /stt here. setup-media.sh substitutes __MEDIA_JS__
+     and the optional voice-model paths. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.webcam-magic.media</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>__MEDIA_JS__</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SD_URL</key><string>http://127.0.0.1:7860</string>
+    <key>PIPER_VOICE</key><string>__PIPER_VOICE__</string>
+    <key>WHISPER_MODEL</key><string>__WHISPER_MODEL__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/webcam-magic-media.log</string>
+  <key>StandardErrorPath</key><string>/tmp/webcam-magic-media.log</string>
+</dict>
+</plist>

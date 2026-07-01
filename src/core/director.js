@@ -208,6 +208,8 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     if (memory && text && text.length < 120) memory.note("said", text);
     // a visual question → actually look at the call
     if (/(how do (i|we) look|what.*(wear|holding|behind me|in my|do you see)|rate (my|our)|look at (me|us|this))/.test(t)) { glance(true); return; }
+    // "draw/paint us …" → conjure a picture via the home image server
+    if (tools.image && /((draw|paint|make|generate|show)\b.{0,18}\b(us|me|picture|photo|portrait|image|art|selfie)|(picture|photo|portrait) of us)/.test(t)) { tools.image(text.replace(/^\s*(please\s+)?(draw|paint|make|generate|show)\s+(me\s+|us\s+)?(a\s+)?/i, "").trim() || undefined); return; }
     const addMode = (id) => { const mi = getModeInfo(id); if (mi) chips.push(chip(mi.nm, iconOf(id), () => nav("ready", id))); };
     if (/\bkiss/.test(t)) addMode("kisscam");
     if (/danc/.test(t)) addMode("dancebattle");

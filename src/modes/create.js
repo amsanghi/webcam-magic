@@ -206,6 +206,54 @@ export function scrapbookMode() {
   };
 }
 
+// ---------------- PORTRAIT STUDIO (AI couple photos via the home server) --
+// Generates a keepsake photo of the two of you together — a scene teleport
+// (txt2img) or "stylize us" from your live frame (img2img). Needs the tier-3
+// media server (server/media); degrades to a friendly nudge without it. The
+// result is shared to your partner and dropped into the Scrapbook.
+export function portraitStudioMode() {
+  const SCENES = [
+    { nm: "in Paris", p: "a romantic photo of a couple together in front of the Eiffel Tower at sunset, warm golden light, cinematic" },
+    { nm: "on a beach", p: "a couple cuddling on a tropical beach at golden hour, dreamy, cinematic bokeh" },
+    { nm: "cozy cabin", p: "a couple snuggled under a blanket by a crackling fireplace in a log cabin, warm candlelight" },
+    { nm: "starry rooftop", p: "a couple stargazing on a city rooftop under the milky way, magical, romantic" },
+    { nm: "grown old together", p: "a heartwarming portrait of the same couple as a happy elderly married couple, decades in love" },
+  ];
+  let idx = 0, img = null, busy = false, msg = "", useUs = false;
+  const load = (url) => { const i = new Image(); i.onload = () => { img = i; }; i.src = url; };
+  function gen() {
+    if (busy) return;
+    if (!host.ai || !host.ai.canImage) { msg = "turn on your home image server to make photos ✨ (see server/media)"; return; }
+    busy = true; img = null; msg = "painting your photo… (~a moment)";
+    const names = host.memory ? host.memory.names() : "a couple";
+    const spec = { prompt: `${SCENES[idx].p}, photorealistic, tender, ${names}`, w: 768, h: 512, steps: 26 };
+    if (useUs && host.grabFrame) { const f = host.grabFrame(768, 0.85); if (f) { spec.init = f; spec.denoise = 0.5; spec.prompt = "the same two people, " + spec.prompt; } }
+    host.ai.image(spec, () => null).then((url) => {
+      busy = false;
+      if (url) { load(url); msg = ""; if (host.moments) host.moments.push({ url }); net.send({ t: "portrait", url }); if (host.chat) host.chat.say("ai", "made you two a little keepsake 💕"); }
+      else msg = "couldn't reach the image server — is SD running on :7860?";
+    });
+  }
+  return {
+    enter() { img = null; msg = ""; },
+    action(a) {
+      if (a === "scene") idx = (idx + 1) % SCENES.length;
+      else if (a === "us") useUs = !useUs;
+      else if (a === "go") gen();
+      else if (a === "save" && img) { const el = document.createElement("a"); el.href = img.src; el.download = "webcam-magic-portrait.png"; el.click(); }
+    },
+    onNet(m) { if (m.t === "portrait" && m.url) { load(m.url); if (host.moments) host.moments.push({ url: m.url }); } },
+    draw(ctx) {
+      if (img && img.complete && img.naturalWidth) {
+        const s = Math.min((W * 0.66) / img.naturalWidth, (H * 0.66) / img.naturalHeight), w = img.naturalWidth * s, h = img.naturalHeight * s, x = W / 2 - w / 2, y = H / 2 - h / 2 - 10;
+        ctx.save(); ctx.fillStyle = "#fff"; ctx.fillRect(x - 10, y - 10, w + 20, h + 44); try { ctx.drawImage(img, x, y, w, h); } catch (_) {} ctx.restore();
+        big(ctx, "🖼 Portrait Studio", "scene: " + SCENES[idx].nm + (useUs ? " • blending your faces" : ""));
+      } else big(ctx, "🖼 Portrait Studio", busy ? msg : (msg || `press ✨ paint — you two “${SCENES[idx].nm}”`));
+      hint(ctx, "Portrait Studio — “scene” picks the setting • “use us” blends your live faces • ✨ paint • ⬇ save");
+    },
+  };
+}
+
 export const modes = {
   "toys": { cat: "Create", ic: "🧸", nm: "Toys", how: ["Pinch to grab & throw objects", "Open palm = magnet", "Two hands: spread = resize, twist = rotate", "Shake your head to scatter • drop one on your nose to wear it"], actions: [["gravity", "gravity"], ["spawn", "+toy"], ["clear", "clear"]], make: toysMode },
   "draw": { cat: "Create", ic: "✏️", nm: "Draw", how: ["Pinch to paint together on a shared canvas", "Use “clear” to wipe it"], actions: [["clear", "clear"]], make: drawMode },
@@ -213,4 +261,5 @@ export const modes = {
   "stars": { cat: "Create", ic: "✨", nm: "Our Stars", how: ["Pinch to place a star on the night sky", "Together you draw a constellation"], actions: [["clear", "clear"]], make: starsMode },
   "oursong": { cat: "Create", ic: "🎶", nm: "Our Song", how: ["Name your song", "Play it out loud — the vinyl & bars dance to the beat"], actions: [["set", "🎶 name it"]], make: ourSongMode },
   "scrapbook": { cat: "Create", ic: "📔", nm: "Scrapbook", how: ["Close your eyes (or use Photo Booth) to snap moments — they save here", "◀ ▶ to flip • ⬇ save to download to your Photos"], actions: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["all", "⬇ all"], ["clear", "🗑"]], make: scrapbookMode },
+  "portrait": { cat: "Create", ic: "🖼️", nm: "Portrait Studio", how: ["AI-paint a keepsake photo of you two together — pick a scene, press paint", "“use us” blends your live faces into it (img2img)", "Needs your home image server (server/media); shared to your partner + saved to the Scrapbook"], actions: [["go", "✨ paint"], ["scene", "🖼 scene"], ["us", "🧑‍🤝‍🧑 use us"], ["save", "⬇ save"]], make: portraitStudioMode },
 };

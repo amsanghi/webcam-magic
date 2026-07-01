@@ -79,6 +79,16 @@ const aiTools = {
   confetti: () => fireConfetti(),
   say: (txt) => { if (host.chat && txt) host.chat.say("ai", String(txt)); },
   ask: (q) => { if (host.chat && q) return host.chat.ask(String(q)); },
+  // 🖼 conjure a picture via the home image server → Scrapbook + shared to partner
+  image: (prompt) => {
+    if (!host.ai || !host.ai.canImage) { if (host.chat) host.chat.say("ai", "(turn on the home image server to make pictures ✨ — see server/media)"); return; }
+    if (host.chat) host.chat.say("ai", "✨ painting something for you…");
+    host.ai.image({ prompt: String(prompt || "a dreamy romantic scene for a couple, cinematic"), w: 768, h: 512, steps: 26 }, () => null).then((url) => {
+      if (!url) return;
+      if (host.moments) host.moments.push({ url }); net.send({ t: "portrait", url });
+      FX.banner(W / 2, H * 0.3, "🖼 new picture!"); if (host.chat) host.chat.say("ai", "made you a picture — it's in your Scrapbook 📔");
+    });
+  },
 };
 const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
 host.ai = ai;

@@ -140,6 +140,23 @@ export function createAI({ net, getAuthority, tools }) {
     },
     setVisionModel(m) { if (m) { visionModel = m; try { localStorage.setItem("wm_ai_vision_model", m); } catch (_) {} } },
     get visionModel() { return visionModel; },
+    // 🖼 Image generation via the home media server (server/media, path /img).
+    // Server tier only; resolves to fallback (or null) otherwise. spec:
+    // {prompt, negative?, init?(dataURL → img2img "stylize us"), w?, h?, steps?, denoise?}.
+    async image(spec, fallback) {
+      const fb = () => (fallback ? fallback() : null);
+      if (tierInfo.tier !== 3 || !serverUrl || !spec || !spec.prompt) return fb();
+      try {
+        const r = await fetch(serverUrl.replace(/\/$/, "") + "/img", {
+          method: "POST", headers: { "Content-Type": "application/json", ...SERVER_HEADERS },
+          body: JSON.stringify(spec), signal: AbortSignal.timeout(180000),
+        });
+        if (!r.ok) return fb();
+        const j = await r.json();
+        return (j && j.image) || fb();
+      } catch (_) { return fb(); }
+    },
+    get canImage() { return tierInfo.tier === 3 && !!serverUrl; },
     // Spice dial → a tone directive prefixed onto every generation (0 sweet / 1
     // flirty / 2 uncensored; AI_SYS is already uncensored so 2 adds nothing).
     setTone(level) {
