@@ -7,7 +7,7 @@
 // otherwise the static fallback deck. Refusals from the model are caught and
 // retried tamer, then fall back — the user never sees "I cannot…".
 
-import { detectTier, amGenerator, checkServer, getServer, setServer, getServerModel, setServerModel } from "./capabilities.js";
+import { detectTier, amGenerator, checkServer, getServer, setServer, getServerModel, setServerModel, SERVER_HEADERS } from "./capabilities.js";
 import { createLLM } from "./llm.js";
 
 // Content tone. Private app, local model, consenting adults — uncensored. The
@@ -52,14 +52,14 @@ export function createAI({ net, getAuthority, tools }) {
     if (!serverUrl) return null;
     try {
       const r = await fetch(serverUrl.replace(/\/$/, "") + "/v1/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...SERVER_HEADERS },
         body: JSON.stringify({ model: serverModel, messages: msgs, temperature: spec.temp ?? 0.9, max_tokens: spec.max || 80, stream: false }),
         signal: AbortSignal.timeout(45000),
       });
-      if (!r.ok) return null;
+      if (!r.ok) { console.warn("[wm-ai] server HTTP " + r.status + " — check the model name (" + serverModel + ") and OLLAMA_ORIGINS/CORS"); return null; }
       const j = await r.json();
       return ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "").trim() || null;
-    } catch (_) { return null; }
+    } catch (e) { console.warn("[wm-ai] server error — unreachable / CORS / ngrok interstitial:", (e && e.message) || e); return null; }
   }
 
   // Generate with the refusal ladder. null → caller uses the static fallback.
