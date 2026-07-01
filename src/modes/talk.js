@@ -63,7 +63,7 @@ export function storyMode() {
   let lines = [];
   return {
     enter() { lines = []; },
-    async action(a) { if (a === "add") { const v = await host.ask("Add the next sentence to your story:"); if (v) { lines.push(v.trim()); net.send({ t: "st-add", lines }); } } else if (a === "clear") { lines = []; net.send({ t: "st-add", lines }); } },
+    async action(a) { if (a === "add") { const v = await host.ask("Add the next sentence to your story:"); if (v) { lines.push(v.trim()); net.send({ t: "st-add", lines }); } } else if (a === "ai") { const s = await host.ai.ask({ system: "Continue this collaborative couple's story with ONE playful next sentence only.", user: lines.join(" ") || "Start a fun short story about a couple.", max: 40, temp: 1.05 }, () => "…and then something unexpected happened. ✨"); if (s) { lines.push(s.trim()); net.send({ t: "st-add", lines }); } } else if (a === "clear") { lines = []; net.send({ t: "st-add", lines }); } },
     onNet(m) { if (m.t === "st-add") lines = m.lines || []; },
     draw(ctx) {
       ctx.textAlign = "center"; ctx.textBaseline = "middle"; outline(ctx, "📖 Our Story", W / 2, 60, 26);
@@ -144,8 +144,8 @@ export function thisOrThatMode() {
   let p = null, phase = "idle", t = 0, mine = 0, theirs = 0, streak = 0;
   const start = (x) => { p = x; phase = "count"; t = 3; mine = 0; theirs = 0; };
   return {
-    onNet(m) { if (m.t === "tot") { p = P[m.i]; start(P[m.i]); } },
-    action(a) { if (a === "go") { const i = Math.floor(Math.random() * P.length); start(P[i]); net.send({ t: "tot", i }); } },
+    onNet(m) { if (m.t === "tot") { p = m.p; start(m.p); } },
+    action(a) { if (a === "go") { host.ai.ask({ system: "Give ONE fun 'this or that' pair for a couple as two short options separated by ' vs ', e.g. '☕ coffee vs 🍵 tea'. Return just the two options.", user: "one pair", max: 16, temp: 1.1 }, () => P[Math.floor(Math.random() * P.length)].join(" vs ")).then((r) => { let pr = String(r).split(/\s+vs\s+/i).map((s) => s.trim()).filter(Boolean); if (pr.length !== 2) pr = P[Math.floor(Math.random() * P.length)]; start(pr); net.send({ t: "tot", p: pr }); }); } },
     update(dt, local, remote) {
       if (!authority) return;
       if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; if (mine === theirs) streak++; else streak = 0; phase = "done"; t = 3; } }
@@ -186,7 +186,7 @@ export const modes = {
   "deeptalk": { cat: "Talk & connect 💬", ic: "💬", nm: "Deep Talk", how: ["A gentle connection prompt each time", "Take turns answering"], actions: [["next", "💬 next"]], make: deepTalkMode },
   "twentyq": { cat: "Talk & connect 💬", ic: "🙋", nm: "20 Questions", how: ["One of you thinks of something", "The other asks up to 20 yes/no questions to guess it"], actions: [["ask", "➕ asked"], ["swap", "🔄 swap"], ["reset", "↺"]], make: twentyQMode },
   "twotruths": { cat: "Talk & connect 💬", ic: "🕵️", nm: "Two Truths & a Lie", how: ["Write two truths and a lie about yourself", "Partner guesses which is the lie"], actions: [["enter", "✍️ enter"], ["reveal", "👀 reveal"]], make: twoTruthsMode },
-  "story": { cat: "Talk & connect 💬", ic: "📖", nm: "Story Builder", how: ["Build a silly story together", "Take turns adding one sentence each"], actions: [["add", "✍️ add"], ["clear", "🗑"]], make: storyMode },
+  "story": { cat: "Talk & connect 💬", ic: "📖", nm: "Story Builder", how: ["Build a silly story together", "Take turns adding a sentence — or let 🤖 AI add one"], actions: [["add", "✍️ add"], ["ai", "🤖 AI"], ["clear", "🗑"]], make: storyMode },
   "telepathy": { cat: "Talk & connect 💬", ic: "🧠", nm: "Telepathy", how: ["A category appears — both name the same thing", "Match = you're on the same wavelength 🎉"], actions: [["go", "🧠 new"], ["answer", "✍️ answer"]], make: telepathyMode },
   "howwell": { cat: "Talk & connect 💬", ic: "🤔", nm: "How Well Do You Know Me", how: ["One answers a question about themselves (secret)", "The other guesses — see if you match"], actions: [["go", "🤔 new"], ["answer", "✍️ answer"]], make: howWellMode },
   "whomore": { cat: "Talk & connect 💬", ic: "⚖️", nm: "Who's More Likely", how: ["A cheeky prompt appears", "Both vote ☝️ you / ✌️ me — agree or debate 😆"], actions: [["go", "⚖️ go"]], make: whoMoreMode },

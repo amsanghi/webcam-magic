@@ -41,6 +41,12 @@ button:hover { filter: brightness(1.08); }
 #menu h2 { font-size: 24px; margin: 6px 0 2px; }
 .pill { font-size: 12px; padding: 5px 11px; border-radius: 999px; background: #11131c; border: 1px solid var(--border); white-space: nowrap; }
 .pill.clickable { cursor: pointer; }
+.menutools { display: flex; gap: 8px; align-items: center; margin: 4px 0 14px; max-width: 1100px; }
+#menuSearch { flex: 1; max-width: 360px; background: #11131c; color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 9px 14px; font: inherit; font-size: 14px; outline: none; }
+#menuSearch:focus { border-color: var(--accent2); }
+.chip.clickable { cursor: pointer; }
+#aiPill.on, #aiPill2.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.card-mode.filtered, .cat-title.filtered { display: none; }
 #menuGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-width: 1100px; }
 .cat-title { grid-column: 1 / -1; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 2px; }
 .card-mode { background: #14182a; border: 1px solid var(--border); border-radius: 14px; padding: 16px 12px; text-align: center; cursor: pointer; transition: transform .08s, background .15s; }
@@ -89,11 +95,11 @@ button:hover { filter: brightness(1.08); }
 
 /* mobile / portrait: stack video on top, dock below */
 @media (max-width: 860px), (orientation: portrait) {
-  #playBody { flex-direction: column; }
-  #chatDock { width: auto; order: 2; max-height: 40vh; }
-  #stage { order: 1; }
+  #playBody { flex-direction: column; gap: 6px; }
+  #stage { order: 1; flex: none; }
+  #chatDock { width: auto; order: 2; flex: 1; max-height: none; min-height: 160px; }
   #stage canvas { max-width: 100%; }
-  #stage[data-size="s"] canvas, #stage[data-size="m"] canvas, #stage[data-size="l"] canvas { max-height: 46vh; }
+  #stage[data-size="s"] canvas, #stage[data-size="m"] canvas, #stage[data-size="l"] canvas { max-height: 44vh; }
 }
 
 /* non-blocking ask modal */
