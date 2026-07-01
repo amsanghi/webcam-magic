@@ -1088,6 +1088,193 @@ export function createGames(net, host) {
     };
   }
 
+  // active player's cursor mapped to the FULL canvas (for shared centred boards)
+  function activeCur(local, remote, turnIdx) { const g = turnIdx === 0 ? local : remote; const c = cursor(g); return c ? { x: c.x * W, y: c.y * H, down: c.down } : null; }
+
+  // 🔒 VAULT — co-op: each of you sees only HALF the code, combine to unlock
+  function vaultMode() {
+    let code = "", phase = "idle";
+    const newCode = () => { code = String(Math.floor(1000 + Math.random() * 9000)); phase = "play"; };
+    return {
+      onNet(m) { if (m.t === "vault") { code = m.c; phase = "play"; } else if (m.t === "vault-win") phase = "win"; },
+      async action(a) {
+        if (a === "new") { newCode(); net.send({ t: "vault", c: code }); }
+        else if (a === "enter") { if (phase !== "play") return; const v = await host.ask("Enter the full 4-digit code:"); if (v && v.trim() === code) { phase = "win"; net.send({ t: "vault-win" }); FX.flood(0, W, ["🎉", "💰", "✨"], 50); FX.Sound.chime(); } else if (v) { FX.Sound.boo(); FX.banner(W / 2, H * 0.3, "nope — try again 🔒"); } }
+      },
+      draw(ctx) {
+        if (phase === "idle") return big(ctx, "🔒 The Vault", "co-op! press “new” to get a code");
+        if (phase === "win") return big(ctx, "🔓 UNLOCKED!", "teamwork 💞");
+        const half = meIdx() === 0 ? code.slice(0, 2) : code.slice(2, 4);
+        big(ctx, "your digits:  " + half.split("").join(" "), "tell your partner, then one of you enters all 4");
+      },
+    };
+  }
+
+  // 🔴 CONNECT FOUR — drop by pointing to a column & pinching
+  function connect4Mode() {
+    const COLS = 7, ROWS = 6, cell = 66, gx = W / 2 - COLS * cell / 2, gy = H / 2 - ROWS * cell / 2 + 10;
+    let board = [], turn = 0, winner = "", down = false, bc = 0;
+    const empty = () => Array.from({ length: COLS * ROWS }, () => "");
+    const at = (c, r) => board[r * COLS + c];
+    const drop = (c, m) => { for (let r = ROWS - 1; r >= 0; r--) if (!at(c, r)) { board[r * COLS + c] = m; return r; } return -1; };
+    const win = (c, r, m) => { for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) { let n = 1; for (const s of [1, -1]) { let x = c + dx * s, y = r + dy * s; while (x >= 0 && x < COLS && y >= 0 && y < ROWS && at(x, y) === m) { n++; x += dx * s; y += dy * s; } } if (n >= 4) return true; } return false; };
+    const mark = () => turn === 0 ? "🔴" : "🟡";
+    return {
+      enter() { board = empty(); turn = 0; winner = ""; },
+      action(a) { if (a === "reset") { board = empty(); turn = 0; winner = ""; net.send({ t: "c4", b: board, tn: turn, w: winner }); } },
+      onNet(m) { if (m.t === "c4") { board = m.b; turn = m.tn; winner = m.w; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        const cur = activeCur(local, remote, turn), d = cur && cur.down;
+        if (!winner && d && !down && cur) { const c = Math.floor((cur.x - gx) / cell); if (c >= 0 && c < COLS) { const r = drop(c, mark()); if (r >= 0) { if (win(c, r, mark())) winner = mark(); else turn = turn ? 0 : 1; net.send({ t: "c4", b: board, tn: turn, w: winner }); FX.Sound.pop(); if (winner) FX.confetti(W / 2, H / 2, 30); } } }
+        down = d;
+        bc += dt; if (bc > .3) { bc = 0; net.send({ t: "c4", b: board, tn: turn, w: winner }); }
+      },
+      draw(ctx) {
+        ctx.save(); ctx.fillStyle = "rgba(40,60,140,.55)"; roundRect(ctx, gx - 8, gy - 8, COLS * cell + 16, ROWS * cell + 16, 14); ctx.fill();
+        for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) { const x = gx + c * cell + cell / 2, y = gy + r * cell + cell / 2; ctx.fillStyle = "#0b1022"; ctx.beginPath(); ctx.arc(x, y, cell * 0.4, 0, 7); ctx.fill(); const v = at(c, r); if (v) { ctx.font = `${cell * 0.7}px serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(v, x, y); } }
+        ctx.restore();
+        const mine = meIdx() === 0 ? "🔴" : "🟡";
+        pill(ctx, winner ? `${winner} wins!  ↺ reset` : `you are ${mine} • ${turn === meIdx() ? "your turn — point & pinch a column" : "partner's turn"}`, W / 2, gy - 24, 15);
+      },
+    };
+  }
+
+  // 🧠 MEMORY MATCH — flip two, find the pairs (point & pinch)
+  function memoryMode() {
+    const EMO = ["🍕", "⭐", "🐱", "🌸", "🎈", "⚽", "🍩", "🎸"];
+    const COLS = 4, ROWS = 4, cell = 118, gx = W / 2 - COLS * cell / 2, gy = H / 2 - ROWS * cell / 2 + 6;
+    let cards = [], turn = 0, score = [0, 0], flips = [], lock = 0, down = false, bc = 0;
+    const setup = () => { const d = [...EMO, ...EMO].sort(() => Math.random() - .5); cards = d.map((ch) => ({ ch, up: false, gone: false })); turn = 0; score = [0, 0]; flips = []; lock = 0; };
+    return {
+      enter() { setup(); },
+      action(a) { if (a === "reset") { setup(); net.send({ t: "mem", c: cards, tn: turn, s: score }); } },
+      onNet(m) { if (m.t === "mem") { cards = m.c; turn = m.tn; score = m.s; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        if (lock > 0) { lock -= dt; if (lock <= 0 && flips.length === 2) { const [a, b] = flips; if (cards[a].ch !== cards[b].ch) { cards[a].up = cards[b].up = false; turn = turn ? 0 : 1; } flips = []; net.send({ t: "mem", c: cards, tn: turn, s: score }); } return; }
+        const cur = activeCur(local, remote, turn), d = cur && cur.down;
+        if (d && !down && cur && flips.length < 2) {
+          const c = Math.floor((cur.x - gx) / cell), r = Math.floor((cur.y - gy) / cell);
+          if (c >= 0 && c < COLS && r >= 0 && r < ROWS) { const i = r * COLS + c; if (!cards[i].up && !cards[i].gone) { cards[i].up = true; flips.push(i); FX.Sound.pop(); if (flips.length === 2) { const [a, b] = flips; if (cards[a].ch === cards[b].ch) { cards[a].gone = cards[b].gone = true; score[turn]++; flips = []; FX.sparkleAt(W / 2, H / 2, 8); } else lock = 1.1; } net.send({ t: "mem", c: cards, tn: turn, s: score }); } }
+        }
+        down = d;
+        bc += dt; if (bc > .3) { bc = 0; net.send({ t: "mem", c: cards, tn: turn, s: score }); }
+      },
+      draw(ctx) {
+        for (let i = 0; i < cards.length; i++) { const c = i % COLS, r = (i / COLS) | 0, x = gx + c * cell, y = gy + r * cell, card = cards[i]; ctx.save(); ctx.fillStyle = card.gone ? "rgba(120,255,170,.18)" : "rgba(30,36,58,.9)"; roundRect(ctx, x + 6, y + 6, cell - 12, cell - 12, 12); ctx.fill(); ctx.font = `${cell * 0.5}px serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(card.up || card.gone ? card.ch : "❓", x + cell / 2, y + cell / 2); ctx.restore(); }
+        pill(ctx, `${score[meIdx()]} – ${score[meIdx() ^ 1]} • ${turn === meIdx() ? "your turn — flip two" : "partner's turn"}`, W / 2, gy - 22, 15);
+      },
+    };
+  }
+
+  // 🧩 TRIVIA — both answer with fingers (1/2/3)
+  function triviaMode() {
+    const Q = [{ q: "How many hearts does an octopus have?", o: ["1", "2", "3"], a: 2 }, { q: "Tallest animal?", o: ["Elephant", "Giraffe", "Horse"], a: 1 }, { q: "The Red Planet?", o: ["Venus", "Mars", "Jupiter"], a: 1 }, { q: "Strings on a guitar?", o: ["4", "6", "8"], a: 1 }, { q: "Largest ocean?", o: ["Atlantic", "Indian", "Pacific"], a: 2 }, { q: "Which is a fruit?", o: ["Tomato", "Carrot", "Onion"], a: 0 }, { q: "Fastest land animal?", o: ["Cheetah", "Lion", "Horse"], a: 0 }, { q: "Colors in a rainbow?", o: ["5", "6", "7"], a: 2 }, { q: "Freezing point of water °C?", o: ["0", "10", "32"], a: 0 }, { q: "How many continents?", o: ["5", "7", "9"], a: 1 }];
+    let i = 0, phase = "idle", t = 0, score = [0, 0], mine = -1, theirs = -1, bc = 0;
+    const start = (idx) => { i = idx; phase = "count"; t = 5; mine = -1; theirs = -1; };
+    return {
+      action(a) { if (a === "go") { const idx = Math.floor(Math.random() * Q.length); start(idx); net.send({ t: "trv-go", i: idx }); } },
+      onNet(m) { if (m.t === "trv-go") start(m.i); else if (m.t === "trv") { i = m.i; phase = m.p; score = m.s; mine = m.mn ?? mine; theirs = m.th ?? theirs; } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        if (phase === "count") { t -= dt; if (t <= 0) { const fp = (g) => g && g.fingers ? Math.min(3, g.fingers) - 1 : -1; mine = fp(local); theirs = fp(remote); if (mine === Q[i].a) score[0]++; if (theirs === Q[i].a) score[1]++; phase = "reveal"; t = 4; net.send({ t: "trv", i, p: phase, s: score, mn: mine, th: theirs }); } }
+        else if (phase === "reveal") { t -= dt; if (t <= 0) { phase = "idle"; net.send({ t: "trv", i, p: phase, s: score }); } }
+      },
+      draw(ctx) {
+        scoreboard(ctx, score, null, "Trivia");
+        if (phase === "idle") return big(ctx, "🧩 Trivia", "press “go” — answer with 1, 2, or 3 fingers");
+        const q = Q[i]; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; outline(ctx, q.q, W / 2, H * 0.32, 26);
+        q.o.forEach((o, k) => { const hit = phase === "reveal" && k === q.a; ctx.font = (hit ? "bold " : "") + "24px system-ui"; ctx.fillStyle = hit ? "#8dffb0" : "#fff"; ctx.textBaseline = "middle"; ctx.fillText(`${k + 1}.  ${o}${hit ? "  ✓" : ""}`, W / 2, H * 0.46 + k * 42); });
+        if (phase === "count") pill(ctx, "answer in… " + Math.ceil(t), W / 2, H * 0.78, 16);
+      },
+    };
+  }
+
+  // 🤔 HOW WELL DO YOU KNOW ME — one answers truth, the other guesses
+  function howWellMode() {
+    const Q = ["my favorite food?", "my dream vacation?", "my biggest fear?", "my comfort movie?", "my go-to karaoke song?", "my ideal Sunday?", "my hidden talent?", "the best gift I could get?", "my favorite thing about you?", "my most-used emoji?"];
+    let q = "", truth = "", guess = "", phase = "idle", answerer = 0;
+    const check = () => { if (truth && guess) phase = "reveal"; };
+    return {
+      onNet(m) { if (m.t === "hw-go") { q = m.q; answerer = m.an; truth = ""; guess = ""; phase = "play"; } else if (m.t === "hw-truth") { truth = m.v; check(); } else if (m.t === "hw-guess") { guess = m.v; check(); } },
+      async action(a) {
+        if (a === "go") { q = pick(Q); answerer = meIdx(); truth = ""; guess = ""; phase = "play"; net.send({ t: "hw-go", q, an: answerer }); }
+        else if (a === "answer") { if (phase !== "play") return; if (meIdx() === answerer) { const v = await host.ask("(secret) Your true answer — " + q); if (v) { truth = v.trim(); net.send({ t: "hw-truth", v: truth }); check(); } } else { const v = await host.ask("Guess their answer — " + q); if (v) { guess = v.trim(); net.send({ t: "hw-guess", v: guess }); check(); } } }
+      },
+      draw(ctx) {
+        if (phase === "idle") return big(ctx, "🤔 How Well Do You Know Me", "press “new”, then both press “answer”");
+        if (phase === "reveal") { const match = truth.toLowerCase() === guess.toLowerCase(); return big(ctx, `truth: ${truth}   guess: ${guess}`, match ? "spot on! 💞" : "close? talk it out 😄"); }
+        big(ctx, q, meIdx() === answerer ? "you answer truthfully (secret)" : "you guess their answer");
+      },
+    };
+  }
+
+  // ⚖️ WHO'S MORE LIKELY — both vote ☝️you / ✌️me
+  function whoMoreMode() {
+    const Q = ["to text first 📱", "to cry at a movie 😭", "to burn dinner 🔥", "to fall asleep first 😴", "to plan the trip ✈️", "to win an argument 😤", "to forget an anniversary 🙈", "to say “I love you” more 💕", "to be late ⏰", "to start a food fight 🍝", "to send memes at 2am 😂", "to give the better massage 💆"];
+    let q = "", phase = "idle", t = 0, mine = 0, theirs = 0;
+    const start = (x) => { q = x; phase = "count"; t = 4; mine = 0; theirs = 0; };
+    return {
+      onNet(m) { if (m.t === "wm") start(m.q); },
+      action(a) { if (a === "go") { const x = pick(Q); start(x); net.send({ t: "wm", q: x }); } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; phase = "done"; t = 4; } }
+        else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
+      },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (phase === "idle") return big(ctx, "⚖️ Who's More Likely…", "press “go” • vote ☝️ you / ✌️ me");
+        if (phase === "count") { outline(ctx, "Who's more likely " + q, W / 2, H * 0.4, 26); pill(ctx, "vote ☝️you / ✌️me • " + Math.ceil(t), W / 2, H * 0.56, 16); return; }
+        const agree = mine !== theirs ? "you agree! 😄" : "you disagree — debate! 😆";  // opposite finger picks = same person
+        big(ctx, "Who's more likely " + q, agree);
+      },
+    };
+  }
+
+  // 🔀 THIS OR THAT — quick preference match (☝️ / ✌️)
+  function thisOrThatMode() {
+    const P = [["☕ coffee", "🍵 tea"], ["🌊 beach", "⛰️ mountains"], ["🐶 dogs", "🐱 cats"], ["🌅 early bird", "🦉 night owl"], ["🍕 pizza", "🌮 tacos"], ["🎬 movie in", "🍸 night out"], ["📱 text", "📞 call"], ["🍫 sweet", "🧂 salty"], ["🏖️ summer", "❄️ winter"], ["🎧 music", "🎙️ podcasts"]];
+    let p = null, phase = "idle", t = 0, mine = 0, theirs = 0, streak = 0;
+    const start = (x) => { p = x; phase = "count"; t = 3; mine = 0; theirs = 0; };
+    return {
+      onNet(m) { if (m.t === "tot") { p = P[m.i]; start(P[m.i]); } },
+      action(a) { if (a === "go") { const i = Math.floor(Math.random() * P.length); start(P[i]); net.send({ t: "tot", i }); } },
+      update(dt, local, remote) {
+        if (!authority) return;
+        if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; if (mine === theirs) streak++; else streak = 0; phase = "done"; t = 3; } }
+        else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
+      },
+      draw(ctx) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        if (!p) return big(ctx, "🔀 This or That", "press “go” • ☝️ left / ✌️ right");
+        if (phase === "count") { outline(ctx, `☝️ ${p[0]}   vs   ✌️ ${p[1]}`, W / 2, H * 0.42, 26); pill(ctx, "pick! • " + Math.ceil(t), W / 2, H * 0.56, 16); return; }
+        const match = mine === theirs;
+        big(ctx, match ? "match! 💕" : "opposites 😜", `you: ${mine === 1 ? p[0] : p[1]} • match streak ${streak}`);
+      },
+    };
+  }
+
+  // 🔡 HANGMAN — one sets a word, the other guesses letters
+  function hangmanMode() {
+    let word = "", guessed = [], wrong = 0, setter = 0, phase = "idle";
+    const masked = () => word.split("").map((c) => c === " " ? "  " : (guessed.includes(c) ? c : "_")).join(" ");
+    return {
+      onNet(m) { if (m.t === "hm-word") { word = m.w; guessed = []; wrong = 0; setter = m.s; phase = "play"; } else if (m.t === "hm-g") { guessed = m.g; wrong = m.wr; if (word && word.split("").every((c) => c === " " || guessed.includes(c))) phase = "win"; if (wrong >= 6) phase = "lose"; } },
+      async action(a) {
+        if (a === "set") { const v = await host.ask("Set a secret word or short phrase:"); if (v) { word = v.toLowerCase().trim(); guessed = []; wrong = 0; setter = meIdx(); phase = "play"; net.send({ t: "hm-word", w: word, s: setter }); } }
+        else if (a === "guess") { if (phase !== "play" || meIdx() === setter) return; const v = await host.ask("Guess a letter:"); if (v) { const c = v.toLowerCase().trim()[0]; if (c && !guessed.includes(c)) { guessed.push(c); if (!word.includes(c)) wrong++; net.send({ t: "hm-g", g: guessed, wr: wrong }); if (word.split("").every((x) => x === " " || guessed.includes(x))) { phase = "win"; FX.confetti(W / 2, H / 2, 30); } else if (wrong >= 6) phase = "lose"; } } }
+      },
+      draw(ctx) {
+        if (phase === "idle") return big(ctx, "🔡 Hangman", "one presses “set”, the other “guess”");
+        if (meIdx() === setter && phase === "play") return big(ctx, "🤫 you set the word", "your partner is guessing…");
+        const hearts = "❤️".repeat(Math.max(0, 6 - wrong)) + "🖤".repeat(Math.min(6, wrong));
+        big(ctx, phase === "win" ? "solved! 🎉 " + word : phase === "lose" ? "out of tries 😅 " + word : masked(), phase === "play" ? "guesses left: " + hearts : "“set” a new word");
+      },
+    };
+  }
+
   // ---- shared UI helpers (consistent contrast, panels & alignment) --------
   function roundRect(ctx, x, y, w, h, r) {
     if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
@@ -1136,7 +1323,8 @@ export function createGames(net, host) {
     loversdice: loversDiceMode, wyr: wyrMode, never: neverMode, dareroulette: dareRouletteMode,
     target: targetTrackMode, simon: simonMode, balloon: balloonMode, reaction: reactionMode,
     winkbattle: winkBattleMode, charades: charadesMode, freeze: freezeMode, rhythm: rhythmMode, wish: wishMode, handsup: handsUpMode,
-    q36: q36Mode, deeptalk: deepTalkMode, twentyq: twentyQMode, twotruths: twoTruthsMode, story: storyMode, telepathy: telepathyMode };
+    q36: q36Mode, deeptalk: deepTalkMode, twentyq: twentyQMode, twotruths: twoTruthsMode, story: storyMode, telepathy: telepathyMode,
+    vault: vaultMode, connect4: connect4Mode, memory: memoryMode, trivia: triviaMode, howwell: howWellMode, whomore: whoMoreMode, thisorthat: thisOrThatMode, hangman: hangmanMode };
 
   function setMode(name) {
     if (M && M.exit) M.exit();
