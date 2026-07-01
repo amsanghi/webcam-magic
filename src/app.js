@@ -1,15 +1,14 @@
 // app.js — orchestrator: camera, MediaPipe, render loop, free-play effects,
 // couple cross-feed effects, mode/game switching, and Trystero networking.
-import { HandLandmarker, FaceLandmarker, ObjectDetector, PoseLandmarker, ImageSegmenter, FilesetResolver }
+import { HandLandmarker, FaceLandmarker, FilesetResolver }
   from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import * as FX from "./fx/effects.js";
 import * as G from "./perception/gestures.js";
 import { createGames, MODE_INFO, MODE_ACTIONS, CAT_ORDER } from "./modes/registry.js";
 import { createVoice } from "./perception/voice.js";
-const OD_MODEL = "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
-const POSE_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
-const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
-
+import { createHost } from "./core/host.js";
+import { createDetectors } from "./core/detectors.js";
+import { createAudio } from "./core/audio.js";
 const VISION_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const HAND_MODEL  = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL  = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
@@ -43,64 +42,10 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
-const MOMENTS = [];   // in-memory session gallery (full-res blob URLs) — no auto-download
-function persistThumb() {   // small thumbnail for cross-session Scrapbook
-  try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-40))); } catch (_) {}
-}
-const host = {
-  moments: MOMENTS,
-  // silent capture — collects into the Scrapbook without downloading (a download
-  // pops OS UI that can pause the tab and stall the call). Export later.
-  snapMoment: () => {
-    canvas.toBlob((b) => { if (!b) return; const url = URL.createObjectURL(b); MOMENTS.push({ url }); if (MOMENTS.length > 60) URL.revokeObjectURL(MOMENTS.shift().url); }, "image/jpeg", 0.88);
-    persistThumb();
-  },
-  // explicit download (📸 button)
-  snapshot: (name) => {
-    canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
-    persistThumb();
-  },
-  // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
-  // the whole tab (stops packets), so the partner sees a silent link and reconnects.
-  ask: (label, opts = {}) => new Promise((resolve) => {
-    const wrap = document.createElement("div"); wrap.className = "ask-modal";
-    const field = opts.multiline ? "<textarea rows='6'></textarea>" : "<input type='text' />";
-    wrap.innerHTML = `<div class="ask-card"><label>${label}</label>${field}<div class="ask-row"><button class="ask-cancel">Cancel</button><button class="ask-ok">OK</button></div></div>`;
-    document.body.appendChild(wrap);
-    const f = wrap.querySelector(opts.multiline ? "textarea" : "input");
-    if (opts.value) f.value = opts.value; setTimeout(() => f.focus(), 30);
-    const done = (v) => { wrap.remove(); resolve(v); };
-    wrap.querySelector(".ask-ok").onclick = () => done(f.value);
-    wrap.querySelector(".ask-cancel").onclick = () => done(null);
-    wrap.addEventListener("click", (e) => { if (e.target === wrap) done(null); });
-    f.addEventListener("keydown", (e) => { if (e.key === "Enter" && !opts.multiline) done(f.value); if (e.key === "Escape") done(null); });
-  }),
-  // 🗣️ voice-to-text (Web Speech API)
-  voice: createVoice(),
-  // 🔍 object detection — modes set want=true to have the loop populate labels[]
-  objects: { want: false, labels: [] },
-  // 🧍 body pose — modes set want=true; lm[] = 33 normalized {x,y} landmarks
-  pose: { want: false, lm: [] },
-  // 🕳️ body silhouette — modes set want=true; grid[gh×gw] = 1 where you are
-  seg: { want: false, gw: 22, gh: 26, grid: new Uint8Array(22 * 26), count: 0 },
-  // 🎤 live audio: level (0..1 loudness) always; pitch (Hz) only when want=true
-  audio: { level: 0, pitch: 0, want: false },
-  // 🖱️ last tap/click on the canvas, in logical (W×H) coords (mouse or touch)
-  pointer: { x: 0, y: 0, t: 0 },
-  // 🎨 dominant hue (0..360) of the centre of your video
-  videoHue: () => { try { const c = document.createElement("canvas"); c.width = 32; c.height = 32; const cx = c.getContext("2d"); cx.drawImage(localVideo, localVideo.videoWidth * .3, localVideo.videoHeight * .3, localVideo.videoWidth * .4, localVideo.videoHeight * .4, 0, 0, 32, 32); const d = cx.getImageData(0, 0, 32, 32).data; let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } r /= n; g /= n; b /= n; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn; if (dl < 18) return -1; let h = 0; if (mx === r) h = ((g - b) / dl) % 6; else if (mx === g) h = (b - r) / dl + 2; else h = (r - g) / dl + 4; h = (h * 60 + 360) % 360; return h; } catch (_) { return -1; } },
-  // 📱 phone sensors + 🌍 GPS
-  sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
-  requestSensors: async () => {
-    try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission(); } catch (_) {}
-    try { if (window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission(); } catch (_) {}
-    if (host.sensors.on) return; host.sensors.on = true;
-    window.addEventListener("deviceorientation", (e) => { host.sensors.beta = e.beta || 0; host.sensors.gamma = e.gamma || 0; });
-    window.addEventListener("devicemotion", (e) => { const a = e.accelerationIncludingGravity || {}; host.sensors.shake = Math.abs(a.x || 0) + Math.abs(a.y || 0) + Math.abs(a.z || 0); });
-  },
-  geo: () => new Promise((res) => { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude }), () => res(null), { timeout: 8000, maximumAge: 60000 }); }),
-};
+const host = createHost(canvas, localVideo);
 const games = createGames(net, host);
+const { stepObjects, stepPose, stepSeg } = createDetectors(host, localVideo);
+const audio = createAudio(host, () => games.mode === "free" && fxOn);
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -386,42 +331,6 @@ function updateAmbient() {
   if (d.getMonth() === 11) s = "❄️"; else if (md === 214) s = "💝"; else if (md === 101 || md === 704) s = "🎆"; else if (md === 1031) s = "🎃";
   if (s && Math.random() < 0.025) FX.emoji(FX.rnd(0, W), -20, FX.rnd(-10, 10), FX.rnd(40, 90), s, FX.rnd(20, 34), FX.rnd(3, 5), 30, { vr: 0 });
 }
-let analyser = null, beatBuf = null, beatEMA = 0, lastTotal = 0, clapCd = 0, timeBuf = null, sampleRate = 44100;
-function initBeat(stream) {
-  try {
-    const a = new (window.AudioContext || window.webkitAudioContext)();
-    sampleRate = a.sampleRate;
-    const src = a.createMediaStreamSource(stream);
-    analyser = a.createAnalyser(); analyser.fftSize = 2048; beatBuf = new Uint8Array(analyser.frequencyBinCount); timeBuf = new Float32Array(analyser.fftSize);
-    src.connect(analyser);
-  } catch (_) {}
-}
-// autocorrelation pitch detector (for "match the note" / hum games)
-function detectPitch() {
-  if (!analyser || !timeBuf) return 0;
-  analyser.getFloatTimeDomainData(timeBuf);
-  const N = timeBuf.length; let rms = 0; for (let i = 0; i < N; i++) rms += timeBuf[i] * timeBuf[i]; rms = Math.sqrt(rms / N);
-  host.audio.level = Math.min(1, rms * 4);
-  if (!host.audio.want || rms < 0.01) return 0;              // autocorr only when a pitch game is active
-  let best = -1, bestOff = -1;
-  for (let off = 8; off < 1000; off++) { let corr = 0; for (let i = 0; i < N - off; i++) corr += timeBuf[i] * timeBuf[i + off]; corr /= (N - off); if (corr > best) { best = corr; bestOff = off; } }
-  return bestOff > 0 ? sampleRate / bestOff : 0;
-}
-function stepBeat() {
-  if (!analyser) return;
-  analyser.getByteFrequencyData(beatBuf);
-  let sum = 0; for (let i = 0; i < 24; i++) sum += beatBuf[i];      // low-end energy
-  const e = sum / (24 * 255);
-  beatEMA = beatEMA * 0.9 + e * 0.1;
-  FX.setBeat(Math.max(0, Math.min(1, (e - beatEMA) * 4)));          // transient above moving average
-  // clap / cheer detection — sharp broadband spike (free mode only)
-  let tot = 0; for (let i = 0; i < beatBuf.length; i++) tot += beatBuf[i]; tot /= beatBuf.length * 255;
-  if (clapCd > 0) clapCd--;
-  if (games.mode === "free" && fxOn && clapCd === 0 && tot - lastTotal > 0.16 && tot > 0.34) { clapCd = 30; FX.burst(W / 2, H * 0.4, ["👏", "🎉"], 12, 320); FX.Sound.applause(); }
-  lastTotal = tot;
-  host.audio.pitch = detectPitch();
-}
-
 // =====================================================================
 //  RENDER
 // =====================================================================
@@ -489,7 +398,7 @@ function loop() {
   drawFeed(remoteVideo, 1 - mySide, inCall && haveRemoteVideo);
   ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(MID - 1, 0, 2, H);
 
-  stepBeat(); updateAmbient();
+  audio.stepBeat(); updateAmbient();
   if (games.mode === "free") {
     sideEffects(localG, mySide, dt);
     if (inCall && remoteG.present) sideEffects(remoteG, 1 - mySide, dt);
@@ -515,50 +424,6 @@ async function initModels() {
   const vision = await FilesetResolver.forVisionTasks(VISION_WASM);
   handLM = await HandLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: HAND_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numHands: 2 });
   faceLM = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
-}
-// object detector loaded lazily (only when a mode wants it — e.g. Treasure Hunt)
-let objDet = null, odLoading = false, odLastT = -1;
-async function ensureObjDet() { if (objDet || odLoading) return; odLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); objDet = await ObjectDetector.createFromOptions(vision, { baseOptions: { modelAssetPath: OD_MODEL, delegate: "GPU" }, scoreThreshold: 0.45, maxResults: 6, runningMode: "VIDEO" }); } catch (_) {} odLoading = false; }
-function stepObjects() {
-  if (!host.objects.want) return;
-  if (!objDet) { ensureObjDet(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === odLastT) return;
-  odLastT = localVideo.currentTime;
-  try { const r = objDet.detectForVideo(localVideo, performance.now() + 2); host.objects.labels = (r.detections || []).map((d) => d.categories[0] && d.categories[0].categoryName).filter(Boolean); } catch (_) {}
-}
-// pose detector — lazy (Pose Party / body games)
-let poseLM = null, poseLoading = false, poseLastT = -1;
-async function ensurePose() { if (poseLM || poseLoading) return; poseLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); poseLM = await PoseLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: "GPU" }, runningMode: "VIDEO", numPoses: 1 }); } catch (_) {} poseLoading = false; }
-function stepPose() {
-  if (!host.pose.want) return;
-  if (!poseLM) { ensurePose(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === poseLastT) return;
-  poseLastT = localVideo.currentTime;
-  try { const r = poseLM.detectForVideo(localVideo, performance.now() + 3); host.pose.lm = (r.landmarks && r.landmarks[0]) ? r.landmarks[0].map((p) => ({ x: 1 - p.x, y: p.y })) : []; } catch (_) {}
-}
-// body-silhouette segmenter — lazy (Hole in the Wall). Fills host.seg.grid with a
-// coarse "person here" occupancy map (display-mirrored to match the canvas).
-let segmenter = null, segLoading = false, segLastT = -1;
-async function ensureSeg() { if (segmenter || segLoading) return; segLoading = true; try { const vision = await FilesetResolver.forVisionTasks(VISION_WASM); segmenter = await ImageSegmenter.createFromOptions(vision, { baseOptions: { modelAssetPath: SEG_MODEL, delegate: "GPU" }, runningMode: "VIDEO", outputCategoryMask: true, outputConfidenceMasks: false }); } catch (_) {} segLoading = false; }
-function stepSeg() {
-  if (!host.seg.want) return;
-  if (!segmenter) { ensureSeg(); return; }
-  if (localVideo.readyState < 2 || localVideo.currentTime === segLastT) return;
-  segLastT = localVideo.currentTime;
-  try {
-    segmenter.segmentForVideo(localVideo, performance.now() + 5, (res) => {
-      const mask = res.categoryMask; if (!mask) return;
-      const mw = mask.width, mh = mask.height, arr = mask.getAsUint8Array();
-      const gw = host.seg.gw, gh = host.seg.gh, grid = host.seg.grid;
-      let person = 0;
-      for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-        const rx = Math.min(mw - 1, Math.floor((1 - (gx + 0.5) / gw) * mw)), ry = Math.min(mh - 1, Math.floor((gy + 0.5) / gh * mh));
-        const v = arr[ry * mw + rx] || 0; const p = v !== 0 ? 1 : 0; grid[gy * gw + gx] = p; person += p;
-      }
-      host.seg.count = person;
-      if (mask.close) mask.close();
-    });
-  } catch (_) {}
 }
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -715,7 +580,7 @@ async function boot(callMode) {
   try {
     await initModels();
     const stream = await startCamera();
-    initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
+    audio.initBeat(stream); loadStreak(); buildDebug(); refreshAnniv(); buildMenu();
     inCall = !!callMode;
     if (callMode) connect($("roomInput").value.trim(), stream); else setConn("solo");
     show("menu");
