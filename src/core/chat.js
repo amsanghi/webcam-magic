@@ -12,7 +12,7 @@
 
 import { ICON } from "./icons.js";
 
-export function createChat({ voice, onSend }) {
+export function createChat({ voice, onSend, serverTts, serverStt }) {
   const $ = (id) => document.getElementById(id);
   const feed = $("chatFeed"), form = $("chatForm"), input = $("chatInput");
   const mic = $("micBtn"), tts = $("ttsBtn");
@@ -106,25 +106,60 @@ export function createChat({ voice, onSend }) {
   input.addEventListener("keydown", (e) => { if (e.key === "Escape" && pending) { const p = pending; input.value = ""; endAsk(); p.resolve(null); } });
   if (askCancel) askCancel.addEventListener("click", () => { if (pending) { const p = pending; input.value = ""; endAsk(); p.resolve(null); } });
 
-  // voice-to-text into the input
+  // voice-to-text into the input: browser Web Speech where supported (Chrome/Edge),
+  // else the home server's Whisper (works on Safari/iOS/Firefox — records, transcribes).
   if (mic) {
-    if (!voice || !voice.supported) mic.style.display = "none";
-    else mic.addEventListener("click", () => {
-      if (listening) { voice.stop(); listening = false; mic.classList.remove("on"); return; }
-      listening = true; mic.classList.add("on");
-      voice.start((t, final) => { input.value = t; if (final) { voice.stop(); listening = false; mic.classList.remove("on"); } });
-    });
+    if (voice && voice.supported) {
+      mic.addEventListener("click", () => {
+        if (listening) { voice.stop(); listening = false; mic.classList.remove("on"); return; }
+        listening = true; mic.classList.add("on");
+        voice.start((t, final) => { input.value = t; if (final) { voice.stop(); listening = false; mic.classList.remove("on"); } });
+      });
+    } else if (serverStt && window.MediaRecorder && navigator.mediaDevices) {
+      let recr = null;
+      mic.addEventListener("click", async () => {
+        if (listening) { try { recr && recr.state !== "inactive" && recr.stop(); } catch (_) {} return; }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const chunks = []; recr = new MediaRecorder(stream);
+          recr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+          recr.onstop = async () => {
+            stream.getTracks().forEach((tr) => tr.stop()); listening = false; mic.classList.remove("on");
+            input.placeholder = "transcribing…";
+            let text = null; try { text = await serverStt(new Blob(chunks, { type: recr.mimeType || "audio/webm" })); } catch (_) {}
+            input.placeholder = DEFAULT_PH; if (text) { input.value = text; input.focus(); }
+          };
+          recr.start(); listening = true; mic.classList.add("on");
+        } catch (_) { listening = false; mic.classList.remove("on"); }
+      });
+    } else mic.style.display = "none";
   }
-  // read AI replies aloud
+  // read AI replies aloud — prefer the home server's neural voice (serverTts),
+  // fall back to the browser's speechSynthesis. Stops any prior utterance first.
+  let curAudio = null;
+  const clean = (t) => String(t).replace(/[\u{1F000}-\u{1FFFF}☀-➿]/gu, "");
+  function stopAudio() { if (curAudio) { try { curAudio.pause(); } catch (_) {} curAudio = null; } try { window.speechSynthesis && speechSynthesis.cancel(); } catch (_) {} }
+  function browserSpeak(t) { if (!window.speechSynthesis) return; try { const u = new SpeechSynthesisUtterance(t); u.rate = 1.02; u.pitch = 1.05; speechSynthesis.speak(u); } catch (_) {} }
   function speak(text) {
-    if (!ttsOn || !window.speechSynthesis) return;
-    try { const u = new SpeechSynthesisUtterance(String(text).replace(/[\u{1F000}-\u{1FFFF}☀-➿]/gu, "")); u.rate = 1.02; u.pitch = 1.05; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (_) {}
+    if (!ttsOn) return;
+    const t = clean(text); if (!t.trim()) return;
+    stopAudio();
+    if (serverTts) {
+      serverTts(t).then((url) => {
+        if (!ttsOn) { if (url) try { URL.revokeObjectURL(url); } catch (_) {} return; }   // muted meanwhile
+        if (!url) return browserSpeak(t);
+        const a = new Audio(url); curAudio = a;
+        const done = () => { try { URL.revokeObjectURL(url); } catch (_) {} if (curAudio === a) curAudio = null; };
+        a.onended = done; a.onerror = () => { done(); browserSpeak(t); };
+        a.play().catch(() => { done(); browserSpeak(t); });
+      }).catch(() => browserSpeak(t));
+    } else browserSpeak(t);
   }
   if (tts) {
-    if (!window.speechSynthesis) tts.style.display = "none";
+    if (!window.speechSynthesis && !serverTts) tts.style.display = "none";
     else {
       const ttsIcon = tts.querySelector(".icon") || tts;
-      tts.addEventListener("click", () => { ttsOn = !ttsOn; tts.classList.toggle("on", ttsOn); ttsIcon.innerHTML = ttsOn ? ICON.volume : ICON.volumeOff; if (!ttsOn) try { speechSynthesis.cancel(); } catch (_) {} });
+      tts.addEventListener("click", () => { ttsOn = !ttsOn; tts.classList.toggle("on", ttsOn); ttsIcon.innerHTML = ttsOn ? ICON.volume : ICON.volumeOff; if (!ttsOn) stopAudio(); });
     }
   }
 

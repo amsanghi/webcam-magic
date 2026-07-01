@@ -157,6 +157,36 @@ export function createAI({ net, getAuthority, tools }) {
       } catch (_) { return fb(); }
     },
     get canImage() { return tierInfo.tier === 3 && !!serverUrl; },
+    // 🔊 Neural TTS via the home media server (/tts, Piper — or XTTS for cloned
+    // voices). Returns a playable object URL, or null so the caller falls back to
+    // the browser's speechSynthesis. Server tier only.
+    async tts(text, voice) {
+      if (tierInfo.tier !== 3 || !serverUrl || !text) return null;
+      try {
+        const r = await fetch(serverUrl.replace(/\/$/, "") + "/tts", {
+          method: "POST", headers: { "Content-Type": "application/json", ...SERVER_HEADERS },
+          body: JSON.stringify({ text: String(text).slice(0, 600), voice: voice || undefined }), signal: AbortSignal.timeout(30000),
+        });
+        if (!r.ok) return null;
+        const buf = await r.arrayBuffer();
+        return buf && buf.byteLength > 64 ? URL.createObjectURL(new Blob([buf], { type: "audio/wav" })) : null;
+      } catch (_) { return null; }
+    },
+    // 🎤 Server STT via Whisper (/stt). Takes a recorded audio Blob, returns text or
+    // null. Lets voice input work where the browser Web Speech API doesn't (Safari/iOS).
+    async stt(blob) {
+      if (tierInfo.tier !== 3 || !serverUrl || !blob) return null;
+      try {
+        const r = await fetch(serverUrl.replace(/\/$/, "") + "/stt", {
+          method: "POST", headers: { "Content-Type": blob.type || "application/octet-stream", ...SERVER_HEADERS },
+          body: blob, signal: AbortSignal.timeout(30000),
+        });
+        if (!r.ok) return null;
+        const j = await r.json();
+        return (j && j.text) || null;
+      } catch (_) { return null; }
+    },
+    get canVoice() { return tierInfo.tier === 3 && !!serverUrl; },
     // Spice dial → a tone directive prefixed onto every generation (0 sweet / 1
     // flirty / 2 uncensored; AI_SYS is already uncensored so 2 adds nothing).
     setTone(level) {

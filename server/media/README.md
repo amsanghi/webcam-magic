@@ -32,6 +32,13 @@ Drop a checkpoint (SDXL is a good default on 32 GB; an uncensored SDXL/Pony chec
 
 From the site (once tier 3 is configured), the client uses `host.ai.image(spec, fallback)` — see **Portrait Studio** and the AI photo-dares.
 
+## Voice (Cupid speaks + hears)
+Once tier 3 is on, this is **automatic** — no site setting:
+- **Cupid speaks** in a neural voice: the chat 🔊 toggle now plays audio from `/tts` (Piper), falling back to the browser's robotic voice only if the server isn't reachable.
+- **Mic → text** uses `/stt` (Whisper) on browsers without Web Speech (**Safari / iOS / Firefox** — i.e. her devices): tap 🎤, talk, tap again; it records, transcodes (ffmpeg), and drops the text into the box.
+
+**Cloned voices (in *your* voices):** Piper ships pre-trained voices, not clones. To read notes/stories in your own voices, swap the `/tts` backend to **XTTS-v2** or **F5-TTS** (zero-shot cloning from a ~20s sample each) and point `wm-media` at it — the client API doesn't change. Set `PIPER_VOICE` in `~/Library/LaunchAgents/com.webcam-magic.media.plist` to pick a voice.
+
 ## Hardware notes (M1 Max 32 GB)
 - **Images:** SDXL ≈ 15–30 s/image; SD1.5 + LCM ≈ 2–4 s; Flux.1-schnell ≈ 30–60 s. All fine.
 - **Voice:** Piper + whisper.cpp are near-real-time and light.

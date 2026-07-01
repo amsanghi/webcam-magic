@@ -21,9 +21,10 @@ MODELS="$HERE/models"; mkdir -p "$MODELS"
 
 # --- optional voice tooling (small models; safe to skip if it fails) ---------
 PIPER_VOICE=""; WHISPER_MODEL=""
-echo "▶ Optional voice tools (Piper TTS + whisper.cpp STT)…"
+echo "▶ Optional voice tools (Piper TTS + whisper.cpp STT + ffmpeg)…"
 brew list piper-tts >/dev/null 2>&1 || brew install piper-tts 2>/dev/null || echo "  (skip piper — install later)"
 brew list whisper-cpp >/dev/null 2>&1 || brew install whisper-cpp 2>/dev/null || echo "  (skip whisper — install later)"
+brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg 2>/dev/null || echo "  (skip ffmpeg — needed to transcode browser audio for STT)"
 # a small English Piper voice
 if [ ! -f "$MODELS/en_US-amy-medium.onnx" ]; then
   curl -fsSL -o "$MODELS/en_US-amy-medium.onnx"      "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx" 2>/dev/null \
