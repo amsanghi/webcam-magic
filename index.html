@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Webcam Magic — gesture & face party for two</title>
-<link rel="stylesheet" href="./style.css?v=2" />
+<link rel="stylesheet" href="./style.css?v=3" />
 </head>
 <body>
   <!-- hidden source videos -->
@@ -35,11 +35,16 @@
       <span class="grow"></span>
       <span class="pill" id="streak" title="hearts">💞 x0</span>
       <span class="pill clickable" id="anniv" title="set your anniversary">💑 set date</span>
+      <button class="chip clickable" id="aiPill" title="On-device AI — click to load">✨ AI</button>
       <button class="chip" id="copyLink2">🔗 invite</button>
       <button class="chip" id="tuneBtn" title="Tuning">🎚</button>
     </div>
     <h2>Pick something to do together</h2>
     <p class="muted">Either of you can choose — your partner comes along automatically.</p>
+    <div class="menutools">
+      <input id="menuSearch" type="text" placeholder="🔎 search modes…" autocomplete="off" />
+      <button class="chip" id="surpriseBtn" title="Pick a random mode">🎲 Surprise us</button>
+    </div>
     <div id="menuGrid"></div>
   </section>
 
@@ -62,6 +67,7 @@
       <span class="pill" id="connPill2">connected 💚</span>
       <span class="pill" id="modePill">✨ Free</span>
       <span class="grow"></span>
+      <button class="chip clickable" id="aiPill2" title="On-device AI — click to load">✨</button>
       <button class="chip" id="menuBtn" title="Back to menu">≡ menu</button>
       <button class="chip" id="sizeBtn" title="Resize video">⤢ M</button>
       <button class="chip" id="fxBtn" title="Toggle effects">✨</button>

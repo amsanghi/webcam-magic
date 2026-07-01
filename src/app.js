@@ -584,11 +584,43 @@ function buildMenu() {
     const title = document.createElement("div"); title.className = "cat-title"; title.textContent = cat; grid.appendChild(title);
     for (const id in MODE_INFO) if (MODE_INFO[id].cat === cat) {
       const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode";
+      card.dataset.nm = (m.nm + " " + cat).toLowerCase();
       card.innerHTML = `<div class="ic">${m.ic}</div><div class="nm">${m.nm}</div>`;
       card.onclick = () => navTo("ready", id);
       grid.appendChild(card);
     }
   }
+}
+
+// live search over the menu cards; also hides category titles that end up empty
+function filterMenu(q) {
+  q = (q || "").trim().toLowerCase(); const grid = $("menuGrid");
+  grid.querySelectorAll(".card-mode").forEach((c) => c.classList.toggle("filtered", !!q && !(c.dataset.nm || "").includes(q)));
+  grid.querySelectorAll(".cat-title").forEach((t) => {
+    let n = t.nextElementSibling, any = false;
+    while (n && !n.classList.contains("cat-title")) { if (n.classList.contains("card-mode") && !n.classList.contains("filtered")) any = true; n = n.nextElementSibling; }
+    t.classList.toggle("filtered", !any);
+  });
+}
+function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "free"); navTo("ready", ids[Math.floor(Math.random() * ids.length)]); }
+
+// ✨ AI status pill (menu + play). Shows tier/load state; click loads the model.
+function aiPillText(short) {
+  const ai = host.ai; if (!ai || !ai.tier) return short ? "✨" : "✨ AI: off";
+  if (ai.status === "ready") return short ? "✨ on" : `✨ AI on (${ai.tier === 2 ? "power" : "light"})`;
+  if (ai.status === "loading") return "✨ " + Math.round((ai.progress || 0) * 100) + "%";
+  return ai.available() ? (short ? "✨ load" : "✨ load AI") : (short ? "✨" : "✨ AI");
+}
+function refreshAiPills() {
+  const ready = host.ai && host.ai.status === "ready";
+  const a = $("aiPill"), b = $("aiPill2");
+  if (a) { a.textContent = aiPillText(false); a.classList.toggle("on", ready); }
+  if (b) { b.textContent = aiPillText(true); b.classList.toggle("on", ready); }
+}
+function aiPillClick() {
+  const ai = host.ai; if (!ai) return;
+  if (ai.amGenerator()) { ai.load(); if (host.chat) host.chat.say("sys", "loading the AI model — first time only (~" + (Math.round((ai.approxMB || 0) / 100) / 10) + " GB), then it's cached."); }
+  else if (ai.tier === 0) { if (host.chat) host.chat.say("sys", "This device can't run the model (needs WebGPU). Your partner's device generates, or use the classic decks."); }
 }
 
 // =====================================================================
@@ -618,6 +650,11 @@ $("soloBtn").addEventListener("click", () => boot(false));
 $("copyLinkBtn").addEventListener("click", (e) => copyLink(e.target));
 $("copyLink2").addEventListener("click", (e) => copyLink(e.target));
 $("tuneBtn").addEventListener("click", () => $("debug").classList.toggle("hidden"));
+$("aiPill").addEventListener("click", aiPillClick);
+$("aiPill2").addEventListener("click", aiPillClick);
+$("surpriseBtn").addEventListener("click", surprise);
+$("menuSearch").addEventListener("input", (e) => filterMenu(e.target.value));
+setInterval(refreshAiPills, 700);
 $("anniv").addEventListener("click", setAnniv);
 // ready screen
 $("readyStart").addEventListener("click", () => navTo("play", pendingMode));
