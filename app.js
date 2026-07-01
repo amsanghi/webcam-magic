@@ -491,17 +491,17 @@ const rp = (p) => p ? { x: r2(p.x), y: r2(p.y) } : null;
 function packet() {
   const g = localG, F = g.face, tw = g.two;
   return {
-    k: "g", pid: myPid, present: g.present, wave: g.wave, fingers: g.fingers, poses: g.poses,
+    k: "g", pid: myPid, present: g.present, wave: g.wave, fingers: g.fingers, handSpeed: r2(g.handSpeed), poses: g.poses,
     pinch: g.pinch.active ? { active: true, x: r2(g.pinch.x), y: r2(g.pinch.y) } : { active: false },
     point: g.point.active ? { active: true, x: r2(g.point.x), y: r2(g.point.y) } : { active: false },
     palm: rp(g.palm), hands: (g.hands || []).map(rp),
     two: {
-      heart: tw.heart, frame: tw.frame, clap: tw.clap, cup: tw.cup, armsWide: tw.armsWide,
+      heart: tw.heart, frame: tw.frame, clap: tw.clap, cup: tw.cup, armsWide: tw.armsWide, prayer: tw.prayer, handsUp: tw.handsUp,
       spread: { active: tw.spread.active, dist: r2(tw.spread.dist) },
       twist: { active: tw.twist.active, angle: r2(tw.twist.angle) },
       circle: tw.circle.active ? { active: true, x: r2(tw.circle.x), y: r2(tw.circle.y), r: r2(tw.circle.r) } : { active: false, x: 0, y: 0, r: 0 },
     },
-    face: { present: F.present, smile: r2(F.smile), kiss: r2(F.kiss), brow: r2(F.brow), frown: r2(F.frown), blink: r2(F.blink), tongue: r2(F.tongue), laugh: F.laugh, zoned: F.zoned, headShake: F.headShake, nose: rp(F.nose), mouth: rp(F.mouth) },
+    face: { present: F.present, smile: r2(F.smile), kiss: r2(F.kiss), brow: r2(F.brow), frown: r2(F.frown), blink: r2(F.blink), tongue: r2(F.tongue), laugh: F.laugh, wink: F.wink, mouthOpen: r2(F.mouthOpen), tilt: r2(F.tilt), zoned: F.zoned, headShake: F.headShake, nod: F.nod, nose: rp(F.nose), mouth: rp(F.mouth) },
   };
 }
 
@@ -631,6 +631,18 @@ const MODE_INFO = {
   simon: { ic: "🙈", nm: "Simon Says", cat: "Games", how: ["Do the pose ONLY when it says “Simon says”", "Do it on a trick round and you miss the point"] },
   balloon: { ic: "🎈", nm: "Keepy-Up", cat: "Games", how: ["A balloon falls on your side", "Bat it up with your hand — most hits before it drops wins"] },
   reaction: { ic: "⚡", nm: "Reaction Duel", cat: "Games", how: ["Wait for it…", "Make a ✊ the instant it says GO — fastest wins the round"] },
+  winkbattle: { ic: "😉", nm: "Wink Duel", cat: "Games", how: ["Wait for GO, then 😉 wink", "First to wink wins the round"] },
+  charades: { ic: "🎭", nm: "Charades", cat: "Games", how: ["“new prompt” → act it out silently with gestures & face", "Partner guesses out loud • “reveal” the answer"] },
+  freeze: { ic: "🧊", nm: "Freeze", cat: "Games", how: ["On FREEZE, hold perfectly still", "Move your hands and you're out — last still wins"] },
+  rhythm: { ic: "🥁", nm: "Rhythm", cat: "Games", how: ["A circle pulses to a beat", "👏 clap in time — score for on-beat claps"] },
+  wish: { ic: "🙏", nm: "Make a Wish", cat: "Couple", how: ["Both press your palms together 🙏", "A shooting star grants your shared wish"] },
+  handsup: { ic: "🙌", nm: "Hands Up!", cat: "Couple", how: ["Both raise your hands at the same time", "Hype counter goes up with confetti 🥳"] },
+  q36: { ic: "💞", nm: "36 Questions", cat: "Talk & connect 💬", how: ["The famous set that “leads to love” (Arthur Aron)", "Take turns answering honestly • end with 4 min eye contact 👀"] },
+  deeptalk: { ic: "💬", nm: "Deep Talk", cat: "Talk & connect 💬", how: ["A gentle connection prompt each time", "Take turns answering"] },
+  twentyq: { ic: "🙋", nm: "20 Questions", cat: "Talk & connect 💬", how: ["One of you thinks of something", "The other asks up to 20 yes/no questions to guess it"] },
+  twotruths: { ic: "🕵️", nm: "Two Truths & a Lie", cat: "Talk & connect 💬", how: ["Write two truths and a lie about yourself", "Partner guesses which is the lie"] },
+  story: { ic: "📖", nm: "Story Builder", cat: "Talk & connect 💬", how: ["Build a silly story together", "Take turns adding one sentence each"] },
+  telepathy: { ic: "🧠", nm: "Telepathy", cat: "Talk & connect 💬", how: ["A category appears — both name the same thing", "Match = you're on the same wavelength 🎉"] },
   kisscam: { ic: "💋", nm: "Kiss Cam", cat: "Couple", how: ["Press start for a countdown", "Both pucker up for the smooch cam 💕"] },
   mashup: { ic: "💞", nm: "Name Mash", cat: "Couple", how: ["Enter both your names", "Get your couple name"] },
   lovecalc: { ic: "❤️", nm: "Love Calc", cat: "Couple", how: ["Enter both names", "See your (very flattering) compatibility %"] },
@@ -674,7 +686,7 @@ const FEATURES = [
   ["circle", "🔮", "Orb", "Make a circle with both hands → a glowing orb"],
   ["squish", "🤏", "Cheek Squish", "Cup your face with both hands → squiish"],
 ];
-const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "Couple", "Chill", "After dark 🌶️"];
+const CAT_ORDER = ["Free play", "Single effects 🎯", "Create", "Games", "Couple", "Talk & connect 💬", "Chill", "After dark 🌶️"];
 for (const [id, ic, nm, how] of FEATURES) MODE_INFO["fx:" + id] = { ic, nm, cat: "Single effects 🎯", how: [how, "It's the only effect on — everything else is off."] };
 const MODE_ACTIONS = {
   share: [["image", "🖼 image"], ["pdf", "📄 pdf"], ["window", "🪟 window"], ["prev", "◀"], ["next", "▶"], ["remove", "🗑"]],
@@ -688,6 +700,11 @@ const MODE_ACTIONS = {
   oursong: [["set", "🎶 name it"]], mailbox: [["write", "💌 write"]], stars: [["clear", "clear"]], lovecalc: [["calc", "❤️ calc"]],
   scrapbook: [["prev", "◀"], ["next", "▶"], ["save", "⬇ save"], ["clear", "🗑"]], bucket: [["add", "➕ add"], ["clear", "🗑"]],
   dareroulette: [["spin", "🌶️ spin"]], loversdice: [["roll", "🎲 roll"]], wyr: [["go", "go"]], never: [["next", "🙈 next"]],
+  charades: [["new", "🎭 new prompt"], ["reveal", "👀 reveal"]], freeze: [["start", "🧊 start"]],
+  q36: [["prev", "◀"], ["next", "▶"]], deeptalk: [["next", "💬 next"]],
+  twentyq: [["ask", "➕ asked"], ["swap", "🔄 swap"], ["reset", "↺"]],
+  twotruths: [["enter", "✍️ enter"], ["reveal", "👀 reveal"]],
+  story: [["add", "✍️ add"], ["clear", "🗑"]], telepathy: [["go", "🧠 new"], ["answer", "✍️ answer"]],
 };
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
