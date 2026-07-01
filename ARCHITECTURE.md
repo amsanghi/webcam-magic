@@ -151,9 +151,14 @@ Passed to `createGames`; available to modes as `host`:
 
 Optional on-device LLM, exposed to modes as `host.ai` and wired in `app.js`.
 
-- **Tiers** (`core/capabilities.js`): 0 static / 1 light (transformers.js + Qwen2.5-0.5B) / 2
-  powerhouse (WebLLM + Llama-3.1-8B), auto-detected from WebGPU + platform + memory, with a
-  `localStorage` override.
+- **Tiers** (`core/capabilities.js`): 3 server (a reachable home Ollama server) / 2 powerhouse
+  (WebLLM + Llama-3.1-8B) / 1 light (transformers.js + Qwen2.5-0.5B) / 0 static — auto-detected from
+  a server ping + WebGPU + platform + memory, with a `localStorage` override. Tier 3 is configured
+  via `wmAI.configure(url)` (persisted in `localStorage.wm_ai_server`) and auto-shared to the partner
+  through the `{t:"cap"}` handshake, so one Mac serves both peers. See `server/` for the setup.
+- **Server routing** (`core/ai.js`): at tier 3 `ask()` POSTs to the server's OpenAI-compatible
+  `/v1/chat/completions` (no worker); lower tiers use the in-browser worker. The refusal ladder
+  (retry tamer → static deck) wraps both.
 - **Generator election** (`amGenerator`): peers exchange tier via a `{t:"cap"}` message; the higher
   tier generates, ties break to the authority. The generator runs the model and the other peer
   requests text over the channel (`{t:"llm-req"}` → `{t:"llm-res"}`) and just displays it.
