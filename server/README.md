@@ -46,22 +46,24 @@ The URL is fixed, so do this a single time per device (it's saved + auto-shared 
 The pill shows **AI on (server)**. Done forever — you never change this again.
 
 ## 3. Daily use — ONE command (`wm.sh`)
-You don't run scripts every day: the core services (Ollama, proxy, ngrok, wm-media) are login
-agents that come back on every boot. `wm.sh` is the single control for everything else:
+`wm.sh` is the single control for the whole stack. **The first `./wm.sh` self-installs anything
+missing** — brew tools (ollama, node, ngrok, ffmpeg…), the login agents, the light text + vision
+models, the voice tools, and Stable Diffusion (cloned to `~/sdnext`). The only prerequisite it can't
+auto-install is **Homebrew** (it prints the one-liner if you don't have it). After that first run the
+core services are login agents, so they come back on every boot on their own.
 
 ```bash
-./wm.sh             # bring the WHOLE stack up (text+vision, tunnel, voice, images)
+./wm.sh             # up: installs anything missing, then runs it all — uses the LIGHT model by default
 ./wm.sh down        # take it all down + free all the RAM
 ./wm.sh status      # what's running + your public URL
-./wm.sh heavy       # best text model (dolphin-mixtral:8x7b)
-./wm.sh light       # fast text model (dolphin3:8b) — frees the Mac
-./wm.sh autostart   # ← run ONCE: makes images auto-start on boot too, so you
-                    #   never run any script again
+./wm.sh heavy       # switch to the best text model (pulls dolphin-mixtral:8x7b, ~26 GB, on demand)
+./wm.sh light       # back to the fast model (dolphin3:8b) — frees the Mac  ← the default
+./wm.sh autostart   # ← run ONCE: makes images auto-start on boot too, so you never run anything again
 ```
 
-The one piece that isn't a login agent by default is the Stable-Diffusion image server; `./wm.sh`
-starts it, and `./wm.sh autostart` turns it into a login agent so the entire stack boots on its own.
-(The older `start.sh` / `stop.sh` still work, but `wm.sh` supersedes them.)
+**Light is the default** (`./wm.sh` == `./wm.sh up light`) so the Mac stays usable; heavy is opt-in and
+only then pulls the big model. `SD_DIR=/path`, `SD_CMD=…`, or `WM_NO_INSTALL=1` override the defaults.
+The older `start.sh` / `stop.sh` still work, but `wm.sh` supersedes them.
 
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.
