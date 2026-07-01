@@ -1,5 +1,11 @@
 # Webcam Magic — Handoff
 
+> **Note (post-refactor):** the codebase has since been modularized under `src/`
+> (`core/`, `perception/`, `fx/`, `modes/`, `vendor/`) — see [../ARCHITECTURE.md](../ARCHITECTURE.md)
+> for the current module map and the [README](../README.md) for the "how to add a mode" recipe.
+> The **deploy / environment / headless-verify** gotchas below are still current; the file-layout
+> and add-a-mode sections describe the old flat structure and are kept for history.
+
 ## What this is
 A **frontend-only, no-backend** two-person **gesture + face video-call "party"** web app for a
 long-distance couple (Aman & his girlfriend). Runs entirely in-browser; peer-to-peer over Trystero.

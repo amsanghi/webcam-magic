@@ -1,23 +1,21 @@
 # ✨ Webcam Magic
 
-A **frontend-only** two-person video call where your hands and face cast little spells —
-make a heart with both hands and the screen floods with hearts, blow a kiss and it flies
-across to your partner, smile and sparkles rain down.
+A **frontend-only**, zero-build, two-person video call where your hands, face, body, voice,
+and phone cast little spells — make a heart with both hands and the screen floods with hearts,
+blow a kiss and it flies across to your partner, smile and sparkles rain down. On top of the
+free-play effects there are **~97 modes** across 9 categories: games, couple activities, talk
+prompts, and single-effect toys.
 
-Everything runs in the browser. **No backend, no recording** — your camera never leaves
-your device. Peer-to-peer connection and signaling are fully serverless (Trystero over
-public MQTT/torrent relays). STUN handles most NAT traversal.
+Built for a long-distance couple. Everything runs in the browser — **no backend, no recording,
+your camera never leaves your device.** The connection is peer-to-peer and fully serverless
+(Trystero over public MQTT/torrent relays; STUN for NAT traversal).
 
-## Stack
-
-- **MediaPipe Tasks Vision** (WASM, on-device) — hand landmarks + face blendshapes
-- **Canvas 2D** — feed compositing + particle effects
-- **Trystero** (`trystero.js`, reused from WatchTogether) — serverless WebRTC rendezvous
-- Pure static files — `index.html` / `style.css` / `app.js` / `trystero.js`
+- **Live:** https://amsanghi.github.io/webcam-magic/
+- **Repo:** https://github.com/amsanghi/webcam-magic
 
 ## Run locally
 
-Camera APIs require a secure context, so use `localhost` (not `file://`):
+Camera/mic APIs need a secure context, so serve over `localhost` (not `file://`):
 
 ```bash
 cd webcam-magic
@@ -25,112 +23,135 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-Click **Try solo** to play alone, or type a shared secret word and **Join call** — your
-partner opens the same link, types the same word, and you're connected.
+Click **Try solo** to explore alone, or type a shared secret word and **Join call** — your
+partner opens the same link, types the same word, and you're connected. Invite with
+`https://…/?room=yourword`.
 
-## Deploy to GitHub Pages (no backend)
+There is **no build step.** The app is plain ES modules loaded directly by the browser; editing
+a file and refreshing is the whole dev loop.
+
+## Deploy (GitHub Pages)
+
+Pages serves `main` at `https://<you>.github.io/webcam-magic/`. A pre-push hook blocks pushing
+straight to `main`; ship through a PR:
 
 ```bash
-git init && git add . && git commit -m "Webcam Magic"
-git branch -M main
-git remote add origin git@github.com:<you>/webcam-magic.git
-git push -u origin main
+git checkout -b my-feature
+git add -A && git commit -m "…"          # end the message with the Co-Authored-By line
+git push -u origin my-feature            # do NOT put "--base main" on this line (hook false-matches)
+gh pr create --base main --head my-feature --title "…" --body "…"
+gh pr merge my-feature --merge --delete-branch
 ```
 
-Then on GitHub: **Settings → Pages → Source: Deploy from a branch → `main` / root**.
-Your site goes live at `https://<you>.github.io/webcam-magic/` over HTTPS, so the camera
-works for anyone. Share `https://<you>.github.io/webcam-magic/?room=yourword` to invite.
+Pages rebuilds in ~60–90s. Full conventions + gotchas live in [docs/HANDOFF.md](docs/HANDOFF.md).
 
-## Free-play gestures & expressions
+## Input systems
 
-**Face (section 1):** 😀 smile → sparkles · 😘 kiss → flying lips (+ fogs partner's screen) ·
-😮 raised brows → shock · ☹️ frown → rain · 😉 hard blink → camera flash + 📸 · 😝 tongue →
-raspberry · 😂 open-mouth laugh → screen shake · 😶 zoned-out → 💤
+Every mode is driven by one or more of these on-device signals. All run locally; the partner's
+effects are driven by a compact gesture **packet** over the data channel, not by re-detecting
+their video.
 
-**One hand (section 2):** 👋 wave → glitter trail · 👈👉 finger-guns → confetti · ✌️ peace →
-peace pop · 👍/👎 thumbs → +1 / boo + 🍅 · 🤟 rock-on → flames + riff · 🫰 snap → spotlight ·
-👉 point → laser dot · 🤏 pinch → grab (in Toys/Draw/Stamp)
+| System | Source | Powers |
+| --- | --- | --- |
+| ✋ Hand landmarks | MediaPipe HandLandmarker (always on) | pinch/point/palm, wave, ✌️👍👎🤟🤙, two-hand heart/frame/clap/circle/spread/twist |
+| 😀 Face blendshapes | MediaPipe FaceLandmarker (always on) | smile, kiss, brows, frown, blink, tongue, laugh, wink, head-shake/nod, tilt |
+| 🧍 Body pose | MediaPipe PoseLandmarker (lazy) | Pose Party |
+| 🕳️ Body silhouette | MediaPipe ImageSegmenter (lazy) | Hole in the Wall |
+| 🔍 Objects | MediaPipe ObjectDetector (lazy) | Treasure Hunt |
+| 🎤 Audio | Web Audio analyser | loudness (Scream), pitch (Match the Note), beat-reactive visuals, clap detection |
+| 🗣️ Speech | Web Speech API (Chrome/Edge) | Say It First, Decipher, Pictionary guesses |
+| 🎨 Video hue | canvas pixel sample | Color Hunt |
+| 📱 Sensors | DeviceOrientation/Motion (phones) | Tilt Maze, Shake Race |
+| 🌍 Location | Geolocation | Distance |
+| ⌨️🖱️ Keyboard / pointer | DOM events | Typing Race, Tap Attack |
+| 📳 Haptics | `navigator.vibrate` | Love Tap |
 
-**Two hands (section 3):** 🫶 heart → flood · 🖼️ frame your face → vignette · 👏 clap →
-applause · ⭕ circle → glowing orb · spread/twist → scale & rotate toys
+## Mode categories
 
-**Couple, across the seam (section 4):** 🫶 **both** make a heart → full-screen eruption + chime ·
-both smile → rainbow arc · reach to the centre together → high-five / glowing hand-hold ·
-👉 point at the seam → boop your partner's nose · ambient **mood tint** (warm when you're both
-happy, cool when sad) · blow a kiss → fog drifts over their screen and they wipe it away.
+Menu sections, in order (`CAT_ORDER` in `src/modes/registry.js`):
 
-## Modes (top bar)
+- **Free play** — all passive gesture/face effects at once, plus couple cross-seam moments
+  (mutual heart eruption, hold-hands love-o-meter, kiss meter, pinky promise, hug, make-a-wish,
+  cross-seam toss/feed-me, mood tint, beat-reactive sparkles, seasonal sprinkles).
+- **Single effects 🎯** — each free-play effect playable on its own (`fx:<id>`).
+- **Create** — Share (image/PDF/screen), Toys, Draw, Stamp, Our Stars, Our Song, Scrapbook.
+- **Games** — Catch, Pop, Air Hockey, RPS, Don't Laugh, Mirror, Tic-Tac-Toe, Thumb War, Dance
+  Battle, Sync Test, Photo Booth, Target, Simon, Keepy-Up, Reaction, Wink Duel, Charades, Freeze,
+  Rhythm, Connect Four, Memory, Trivia, Vault.
+- **New senses 🎙️** — Say It First, Decipher, Treasure Hunt, Distance, Tilt Maze, Shake Race,
+  Pose Party, Hole in the Wall, Mouth Flappy, Color Hunt, Match the Note, Scream Meter, Typing
+  Race, Tap Attack.
+- **Couple** — Kiss Cam, Name Mash, Love Calc, Date Spinner, Pictionary, Mailbox, Bucket List,
+  Dress-Up, Make a Wish, Hands Up, Love Tap.
+- **Talk & connect 💬** — 36 Questions, Deep Talk, 20 Questions, Two Truths, Story Builder,
+  Telepathy, How Well Do You Know Me, Who's More Likely, This or That, Hangman.
+- **Chill** — Slow Dance, Mood, Breathe, Karaoke, Countdown.
+- **After dark 🌶️** — Truth or Dare, Pick-up Lines, Dare Roulette, Lovers' Dice, Would You
+  Rather, Never Have I Ever.
 
-- **✨ Free** — all the passive gesture/face effects above
-- **📎 Share** — the "Shacam" mode: load an **image** or **PDF**, or capture a **window/screen**, then grab/move them with a pinch, **resize/rotate with two hands**, and **swipe your palm to flip PDF pages** — all composited over your webcam. Content + transforms sync to your partner (they auto-enter Share to see it). Hit 📸 to snapshot the composite.
-- **🧸 Toys** — physics objects you pinch-grab & throw; open palm = magnet; gravity toggle; drop one on your nose to wear it (section 5)
-- **✏️ Draw** — pinch to paint together on a shared canvas, with a faint heart template (section 6)
-- **🏷️ Stamp** — pinch to place stickers; cycle the sticker (section 6)
-- **🍓 Catch / 🫧 Pop / 🏒 Hockey / ✊ RPS / 😐 Don't Laugh / 🪞 Mirror** — six mini-games (section 7)
-- **📸 Booth** — 3·2·1 countdown → snapshots you both in a heart frame and downloads the keepsake
-- **💘 Sync Test** — a cute question pops up; both throw a finger-count answer → match = "in sync! 💕"
-- **👍 Thumb War** — hold 👍 and push the thumb to your partner's side
-- **🎡 Date Spinner** — spin for a random date-night idea
-- **👒 Dress-Up** — cycle hats; match your partner's hat to "twin 👯"
-- **💃 Slow Dance** — warm romantic ambient + hearts that pulse to the music
-- **😈 Truth or Dare** — cute couple prompts, synced
-- **🎱 Magic 8-Ball** — ask a yes/no question and **shake your head** to get an answer
-- **#️⃣ Tic-Tac-Toe** — real 2-player, pinch a cell to place your mark
-- **💞 Name Mash** — generates your couple name
-- **⏳ Countdown** — days till you next meet
-- **🎨 Pictionary** — one draws (pinch), you both guess out loud
-- **🧘 Breathe** — a synced expanding ring to breathe together
-- **🎤 Karaoke** — paste lyrics for a scrolling crawl
-- **💋 Kiss Cam** — countdown → both pucker → smooch explosion
-- **🕯️ Mood** — candlelit ambiance, just the two of you
-- **💘 Lines** — pickup-line / compliment roulette
-- **🎶 Our Song** — name your song; a vinyl + bars dance to the music (mic-reactive)
-- **💌 Mailbox** — write love notes; delivered to your partner and saved to re-read
-- **✨ Our Stars** — pinch to place stars; together you draw a constellation on a night sky
-- **🕺 Dance Battle** — match the called-out move in time; score vs. your partner
-- **❤️ Love Calc** — enter both names for a (always flattering) compatibility %
-- **📔 Scrapbook** — your Photo Booth shots auto-save here; flip through them
-- **🪣 Bucket List** — add things to do together; pinch to check them off (synced)
+## How to add a mode
 
-**Always-on extras:** clap/cheer out loud → 👏 confetti (mic), subtle **seasonal sprinkles** by date (snow in Dec, hearts on Valentine's, fireworks on New Year/July 4th, 🎃 on Halloween), and a **🌅 ritual button** to send your partner a good-morning / good-night with themed effects.
+Thanks to the registry, adding a mode is a **single-file edit**. Pick the topic file matching the
+category (e.g. `src/modes/party.js` for a Games mode) and:
 
-**🔞 toggle (HUD):** opt-in flirty deck — makes Truth-or-Dare and Lines cheekier. Suggestive and playful only; no explicit content.
+1. **Write the factory.** A mode is a factory returning a small lifecycle object:
 
-## 💕 Lovey-dovey couple moments (Free mode)
+   ```js
+   export function myGameMode() {
+     let score = [0, 0];
+     return {
+       enter() { /* optional: reset state; set host.<detector>.want = true here */ },
+       exit()  { /* optional: clear host.<detector>.want */ },
+       update(dt, local, remote) { /* authority judges & broadcasts; others return early */ },
+       draw(ctx) { scoreboard(ctx, score, null, "My Game 🎮"); },
+       onNet(m) { /* apply a message from net.send() */ },
+       action(a) { /* handle actionbar buttons */ },
+     };
+   }
+   ```
 
-Beyond the gestures above, when you're both on the call:
-- 💋 **Kiss meter** — both pucker at once → smooch burst + a daily "kiss #N" counter
-- 🤙 **Pinky promise** — both make a pinky → it's sealed
-- 🫂 **Send a hug** — both open your arms wide → a hug wraps the screen
-- ❤️‍🔥 **Love-o-meter** — hold hands at the seam; a meter fills the longer you stay connected → fireworks at 100%
-- 🌠 **Make a wish** — close your eyes together → a shooting star crosses
-- 🍰 **Feed me** — pinch-fling a treat across the seam; if it reaches their mouth → "yum 😋"
-- 💌 **Sweet nothings** — the 💌 button flings a random cute message over to your partner
-- 🤏 **Cheek squish** — cup your face with both hands → the feed squishes with a *boing*
-- 🎉 **Confetti cannon** — the 🎉 button rains confetti on both of you
-- 💑 **Days together** — click the 💑 pill to set your anniversary; it counts the days
-- 🔥 **Streaks** — a daily heart-streak counter remembered across days
+   Shared helpers (`net`, `host`, `authority`, `meIdx`, `W/H/MID/toCanvas`, `cursor`, `big`,
+   `scoreboard`, `hint`, `pill`, `outline`, the `FX` namespace, …) all come from the one-line
+   `import … from "./_shared.js"` already at the top of every topic file.
 
-**Extras:** 🎚 **live tuning panel** (HUD button) with sliders for every gesture/face
-threshold — adjust the "feel" in real time. **Reaction weather** (sun/rain/stars by mood),
-**beat-reactive** sparkle pulse from your mic, **couple streak** counter (session combo +
-daily streak in `localStorage`), **cross-seam toss** (pinch-fling an emoji and it lands on
-your partner's screen to catch), **head-shake** scatters toys, **concert mode** strobe on
-rock-on, and a **clown filter** for the Don't-Laugh loser.
+2. **Register it** — add an entry to that file's `modes` object:
 
-## Code layout
+   ```js
+   export const modes = {
+     // …
+     mygame: {
+       cat: "Games", ic: "🎮", nm: "My Game",
+       how: ["One-line how-to shown on the ready screen", "…"],
+       actions: [["start", "go"]],   // optional actionbar buttons
+       make: myGameMode,
+     },
+   };
+   ```
 
-- `effects.js` — particle engine, screen overlays (vignette/fog/flash/rainbow/spotlight/tint/shake), WebAudio sounds
-- `gestures.js` — all hand-pose & face-expression classification from MediaPipe landmarks
-- `games.js` — the stateful modes (toys, draw, stamp, games)
-- `app.js` — camera, models, render loop, free-play + couple effects, mode switching, Trystero networking
+That's it. `registry.js` picks it up automatically — it appears in the menu (`MODE_INFO`), on the
+ready-screen how-to, wires its actionbar buttons (`MODE_ACTIONS`), and slots into its category.
 
-## Known limits (honest)
+**Multiplayer contract:** for scored games only **the authority** (player 0, left on both screens)
+judges — it reads each player's own detection, computes score, and broadcasts via `net.send`;
+non-authority clients `return` early from `update()` and just render the broadcast state, which is
+why both screens show identical numbers. See [ARCHITECTURE.md](ARCHITECTURE.md) for the packet
+shape, the authority/side model, and the full `host` API.
 
-- **No TURN server** (would need hosting/paid service). ~10–20% of connections behind
-  strict/symmetric NATs may fail to establish media with STUN alone. Add a TURN entry to
-  the Trystero `rtcConfig` later if you hit this.
-- Hand **+** face detection both run per frame (face throttled to every other frame). On
-  older laptops expect 20–30fps; close other tabs for best results.
-- Cross-feed effects are driven by a compact gesture packet over the data channel, so the
-  partner's effects fire from their reported gesture state, not from re-detecting their video.
+**Adding a new gesture:** add the field to `blankState()` and compute it in
+`classifyHands`/`classifyFace` in `src/perception/gestures.js`, **and** add it to `packet()` in
+`src/app.js` so the partner receives it (thresholds go in `TUNE`, live-tunable via the 🎚 panel).
+
+## Caveats (honest)
+
+- **No TURN server** (STUN only). ~10–20% of strict/symmetric-NAT pairs may fail to establish
+  media; genuine drops recover on a 12s-silence heartbeat rejoin.
+- **Voice modes** (Say It, Decipher, Pictionary guessing) use the Web Speech API — **Chrome/Edge
+  only**. **Sensor modes** (Tilt, Shake) need a phone with motion sensors.
+- Hand + face both run per frame (face throttled to every other frame). Older laptops see
+  20–30fps; the render loop is capped at 30fps deliberately (quality over framerate).
+- Gesture thresholds are heuristic — tune them live on real cameras via the 🎚 panel.
+
+## Content boundary
+
+Flirty / suggestive / innuendo is fine and always on (the **After dark 🌶️** category), but
+**no sexually explicit content or nudity.** This line is intentional; please keep it.
