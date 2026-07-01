@@ -28,7 +28,8 @@ let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
 let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH screens, player 1 = right
 let soloFx = null;              // when set, Free play runs only this one feature
-let eyeCapOn = true, eyeClosedT = 0, eyeSnapped = false, snapCount = 0;   // "close eyes to snap"
+let eyeCapOn = true; try { eyeCapOn = localStorage.getItem("wm_eyecap") !== "0"; } catch (_) {}   // default ON, remembered
+let eyeClosedT = 0, eyeArmed = false, eyeReopen = -1, snapCount = 0;   // "close eyes to snap"
 let frame = 0, lastFps = performance.now(), fpsCount = 0, lastVideoTime = -1;
 let combo = 0;
 
@@ -37,10 +38,22 @@ let localG = G.blankState(), remoteG = G.blankState();
 // ---- networking handle passed into games ----------------------------------
 const net = { send: (o) => { if (sendMsg) sendMsg(o); } };
 let sendMsg = null;
+const MOMENTS = [];   // in-memory session gallery (full-res blob URLs) — no auto-download
+function persistThumb() {   // small thumbnail for cross-session Scrapbook
+  try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-40))); } catch (_) {}
+}
 const host = {
+  moments: MOMENTS,
+  // silent capture — collects into the Scrapbook without downloading (a download
+  // pops OS UI that can pause the tab and stall the call). Export later.
+  snapMoment: () => {
+    canvas.toBlob((b) => { if (!b) return; const url = URL.createObjectURL(b); MOMENTS.push({ url }); if (MOMENTS.length > 60) URL.revokeObjectURL(MOMENTS.shift().url); }, "image/jpeg", 0.88);
+    persistThumb();
+  },
+  // explicit download (📸 button)
   snapshot: (name) => {
     canvas.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "webcam-magic") + ".png"; a.click(); });
-    try { const c = document.createElement("canvas"); c.width = 320; c.height = 180; c.getContext("2d").drawImage(canvas, 0, 0, 320, 180); const url = c.toDataURL("image/jpeg", 0.6); const arr = JSON.parse(localStorage.getItem("wm_scrapbook") || "[]"); arr.push(url); localStorage.setItem("wm_scrapbook", JSON.stringify(arr.slice(-40))); } catch (_) {}
+    persistThumb();
   },
   // Non-blocking text prompt. NEVER use window.prompt during a call — it freezes
   // the whole tab (stops packets), so the partner sees a silent link and reconnects.
@@ -408,13 +421,19 @@ function loop() {
   const dt = Math.min(0.05, (t - (loop._last || t)) / 1000); loop._last = t; loop._draw = t; frame++;
 
   detectLocal(dt);
-  // 👁 global: hold your eyes closed ~0.7s (longer than a blink) to snap a photo
+  // 👁 global: close your eyes for a moment, then the photo snaps just AFTER you
+  // reopen them (so your eyes are open in the shot). Silent — saved to Scrapbook.
   if (eyeCapOn && localG.face.present) {
-    if (localG.face.blink > 0.6) {
-      eyeClosedT += dt;
-      if (eyeClosedT > 0.7 && !eyeSnapped) { eyeSnapped = true; snapCount++; host.snapshot("moment-" + snapCount); FX.flash(); FX.banner(W / 2, H * 0.28, "📸 saved!"); FX.Sound.pop(); }
-    } else { eyeClosedT = 0; eyeSnapped = false; }
-  }
+    const closed = localG.face.blink > 0.55;
+    if (closed) { eyeClosedT += dt; if (eyeClosedT > 0.4) eyeArmed = true; eyeReopen = -1; }
+    else {
+      eyeClosedT = 0;
+      if (eyeArmed) {
+        eyeReopen = eyeReopen < 0 ? 0 : eyeReopen + dt;
+        if (eyeReopen > 0.25) { eyeArmed = false; eyeReopen = -1; snapCount++; host.snapMoment(); FX.flash(); FX.banner(W / 2, H * 0.28, `📸 saved! (${snapCount})`); FX.Sound.pop(); }
+      }
+    }
+  } else { eyeClosedT = 0; eyeArmed = false; eyeReopen = -1; }
   squish[0] += (squishTarget[0] - squish[0]) * 0.25; squish[1] += (squishTarget[1] - squish[1]) * 0.25;
   if (fogTime > 0) { fogTime -= dt; if (localG.pinch.active) { const p = toCanvas(localG.pinch, 0); FX.wipeFog(0, p.x / MID, p.y / H); } else if (localG.palm) FX.wipeFog(0, localG.palm.x, localG.palm.y); if (fogTime <= 0) FX.setFog(0, false); }
 
@@ -713,7 +732,9 @@ $("readyBack").addEventListener("click", () => navTo("menu"));
 $("menuBtn").addEventListener("click", () => navTo("menu"));
 $("fxBtn").addEventListener("click", (e) => { fxOn = !fxOn; e.target.style.opacity = fxOn ? 1 : 0.45; });
 $("snapBtn").addEventListener("click", () => host.snapshot("webcam-magic"));
-$("eyeBtn").addEventListener("click", (e) => { eyeCapOn = !eyeCapOn; e.target.style.opacity = eyeCapOn ? 1 : 0.4; e.target.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; });
+function reflectEye() { const b = $("eyeBtn"); b.style.opacity = eyeCapOn ? 1 : 0.4; b.title = eyeCapOn ? "Close your eyes to snap a photo (on)" : "Eye-capture off"; }
+$("eyeBtn").addEventListener("click", () => { eyeCapOn = !eyeCapOn; try { localStorage.setItem("wm_eyecap", eyeCapOn ? "1" : "0"); } catch (_) {} reflectEye(); });
+reflectEye();
 $("leaveBtn").addEventListener("click", () => location.reload());
 $("loveBtn2").addEventListener("click", sendSweet);
 $("confettiBtn2").addEventListener("click", fireConfetti);
