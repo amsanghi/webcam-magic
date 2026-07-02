@@ -314,6 +314,13 @@ export function flash() { overlays.push({ ttl: 0.45, age: 0, kind: "flash" }); }
 export function link(ax, ay, bx, by) { overlays.push({ ttl: 0.1, age: 0, kind: "link", ax, ay, bx, by }); }
 export function ring(x, y, color) { overlays.push({ ttl: 0.6, age: 0, kind: "ring", x, y, color }); }
 export function banner(x, y, text) { overlays.push({ ttl: 1.4, age: 0, kind: "banner", x, y, text }); }
+
+// 📱 stacked view (portrait phones): the two halves are re-composited vertically
+// at display time. Screen-centered text would tear across the seam, so banner()
+// (and stack-aware modes via isStacked) render once per half instead.
+let stackedView = false;
+export function setStacked(b) { stackedView = !!b; }
+export const isStacked = () => stackedView;
 export function blush(x, y) { overlays.push({ ttl: 1.2, age: 0, kind: "blush", x, y }); }
 
 export function stepOverlays(dt) {
@@ -339,18 +346,23 @@ export function drawOverlays(ctx) {
       ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(o.x, o.y, 20 + k * 90, 0, 7); ctx.stroke();
       ctx.restore();
     } else if (o.kind === "banner") {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, (1 - k) * 2);
-      ctx.translate(o.x, o.y - k * 40);
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const size = 42; ctx.font = `700 ${size}px system-ui`;
-      const w = ctx.measureText(o.text).width + size * 1.5, h = size * 1.72;
-      ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
-      ctx.fillStyle = "rgba(10,12,20,0.66)"; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill();
-      ctx.shadowColor = "transparent";
-      ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.stroke();
-      ctx.fillStyle = "#fff"; ctx.fillText(o.text, 0, 0);
-      ctx.restore();
+      // stacked: a seam-centered banner is drawn once per half (smaller) so
+      // both stacked panels read it whole instead of getting torn pieces.
+      const spots = stackedView && Math.abs(o.x - W / 2) < 220 ? [[W * 0.25, 0.78], [W * 0.75, 0.78]] : [[o.x, 1]];
+      for (const [bx, sc] of spots) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, (1 - k) * 2);
+        ctx.translate(bx, o.y - k * 40); ctx.scale(sc, sc);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const size = 42; ctx.font = `700 ${size}px system-ui`;
+        const w = ctx.measureText(o.text).width + size * 1.5, h = size * 1.72;
+        ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
+        ctx.fillStyle = "rgba(10,12,20,0.66)"; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.fillText(o.text, 0, 0);
+        ctx.restore();
+      }
     } else if (o.kind === "blush") {
       ctx.save(); ctx.globalAlpha = (1 - k) * 0.6; ctx.fillStyle = "#ff7aa8";
       for (const dx of [-26, 26]) { ctx.beginPath(); ctx.arc(o.x + dx, o.y + 6, 16, 0, 7); ctx.fill(); }

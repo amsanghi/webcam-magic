@@ -382,6 +382,17 @@ button .icon { width: 1.05em; height: 1.05em; }
 #dockMin { width: 30px; height: 30px; }
 #dockMin .icon { width: 15px; height: 15px; }
 
+/* 📱 stacked portrait view: the tall re-composited canvas becomes the screen */
+@media (orientation: portrait) {
+  #play.stacked #stageCol { flex: 1 1 auto; min-height: 0; }
+  #play.stacked #stage { flex: 1; min-height: 0; }
+  #play.stacked #stage canvas { max-height: 100%; max-width: 100%; }
+  #play.stacked #modeCaption { max-height: 18vh; padding: 9px 14px; }
+  #play.stacked .cap-title { font-size: 16px; }
+  #play.stacked .cap-sub { font-size: 13px; margin-top: 4px; }
+  #play.stacked #playBody { justify-content: initial; }
+}
+
 /* touch ergonomics: kill double-tap zoom, fatten targets on touch screens */
 button, input, .chip, .pill, .card-mode, .deck-card, .chip-action { touch-action: manipulation; }
 @media (pointer: coarse) {

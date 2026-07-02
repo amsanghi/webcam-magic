@@ -39,6 +39,26 @@ canvas.width = Math.round(W * RS); canvas.height = Math.round(H * RS);
 ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
 canvas.addEventListener("pointerdown", (e) => { const r = canvas.getBoundingClientRect(); host.pointer = { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, t: performance.now() }; bumpInteract(); });
 
+// 📱 STACKED VIEW (portrait phones): all logic + drawing stay in the 1280x720
+// side-by-side space; at display time the two halves are re-composited
+// vertically (player 0 on top) onto this second canvas, which nearly fills a
+// phone screen (640x1440 ≈ 9:20). Modes whose OUTPUT is a shared full-width
+// drawing (boards, meters, lyrics, centered canvas text) opt out via NO_STACK
+// and keep the classic view. Taps are inverse-mapped back to logical coords.
+const stackCanvas = document.createElement("canvas");
+stackCanvas.id = "stackCanvas"; stackCanvas.className = "hidden";
+stackCanvas.width = Math.round(MID * RS); stackCanvas.height = Math.round(H * 2 * RS);
+document.getElementById("stage").appendChild(stackCanvas);
+const sctx = stackCanvas.getContext("2d");
+stackCanvas.addEventListener("pointerdown", (e) => {
+  const r = stackCanvas.getBoundingClientRect();
+  const xN = (e.clientX - r.left) / r.width;
+  const yL = (e.clientY - r.top) / r.height * (H * 2);
+  const bottom = yL >= H;                       // top panel = left half, bottom = right half
+  host.pointer = { x: (bottom ? MID : 0) + xN * MID, y: bottom ? yL - H : yL, t: performance.now() };
+  bumpInteract();
+});
+
 let handLM = null, faceLM = null;
 let inCall = false, fxOn = true, amInitiator = true, haveRemoteVideo = false, playing = false;
 let mySide = 0;                 // fixed: player 0 (authority) = left on BOTH screens, player 1 = right
@@ -179,6 +199,7 @@ const director = createDirector({
 });
 host.director = director;
 window.wmDirector = director;      // console/debug handle (see window.wmAI)
+window.wmHost = host;              // debug handle: inspect pointer/sensors/detectors live
 
 // =====================================================================
 //  LOCAL DETECTION
@@ -547,6 +568,11 @@ function loop() {
   FX.drawParticles(ctx); FX.drawOverlays(ctx);
   drawCursors();
   updateModeHud(hudState());                            // flush caption + score bar to the DOM
+  if (!stackCanvas.classList.contains("hidden")) {      // 📱 re-composite halves vertically
+    const mw = Math.round(MID * RS), mh = Math.round(H * RS);
+    sctx.drawImage(canvas, 0, 0, mw, mh, 0, 0, mw, mh);
+    sctx.drawImage(canvas, mw, 0, mw, mh, 0, mh, mw, mh);
+  }
 }
 const _dummy = G.blankState();
 function nullDummy() { return _dummy; }
@@ -761,6 +787,7 @@ function enterPlay(mode) {
   if (host.director) host.director.intro(mode);           // the host greets + offers one-tap chips
   show("play");
   wakeChrome();
+  applyStack();                                           // 📱 stacked view if this mode supports it
   if (!howShown.has(mode)) { howShown.add(mode); showHowTo(mode); } else hideHowTo();
 }
 function showReady(mode) {
@@ -870,6 +897,28 @@ function pushToast(text) {
 // landscape phones: start with Cupid tucked — the floating dock would cover half
 // the video. (Portrait keeps the dock: it fills the space under the 16:9 canvas.)
 if (matchMedia("(orientation: landscape) and (max-height: 520px)").matches) setDockMin(true);
+
+// ---- 📱 stacked-view switching. Audited 2026-07: these modes draw SHARED
+// full-width canvas content (boards / meters / lyric crawls / centered text)
+// that would tear at the seam — they keep the classic side-by-side view.
+const NO_STACK = new Set([
+  "hockey", "thumbwar", "photobooth", "tictactoe", "connect4", "memory", "trivia",
+  "rhythm", "note", "scream", "typing", "pictionary", "mailbox", "bucket",
+  "karaoke", "dareroulette", "loversdice", "wyr", "never", "oursong",
+  "adventure", "madlibs", "share",
+]);
+const stackMQ = matchMedia("(orientation: portrait) and (max-width: 820px)");
+let stackPref = true; try { stackPref = localStorage.getItem("wm_stack") !== "0"; } catch (_) {}
+function applyStack() {
+  const on = stackPref && stackMQ.matches && playing && !NO_STACK.has(games.mode);
+  canvas.classList.toggle("hidden", on);
+  stackCanvas.classList.toggle("hidden", !on);
+  $("play").classList.toggle("stacked", on);
+  FX.setStacked(on);
+  if (on && !$("play").classList.contains("dock-min")) setDockMin(true);   // video IS the screen now
+}
+try { stackMQ.addEventListener("change", applyStack); } catch (_) { stackMQ.addListener && stackMQ.addListener(applyStack); }
+window.addEventListener("resize", () => { clearTimeout(applyStack._t); applyStack._t = setTimeout(applyStack, 150); });   // rotation fallback
 
 // ---- idle chrome: the top bar melts away so the two of you fill the screen ---
 let chromeT = 0;
