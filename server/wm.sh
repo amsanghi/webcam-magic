@@ -128,6 +128,11 @@ start_sd() {
     echo "  ▶ SD venv on an unsupported Python — rebuilding with $py…"; rm -rf "$dir/venv"
   fi
   [ -x "$dir/venv/bin/python3" ] || { echo "  ▶ creating SD venv with $py…"; "$py" -m venv "$dir/venv" >/dev/null 2>&1 || echo "  ⚠ couldn't create venv with $py"; }
+  # SD.Next's macOS MPS fix imports torchsde but doesn't always pull it → startup crash
+  # (ValueError: Empty module name). Once torch is in, make sure torchsde is too.
+  if "$dir/venv/bin/python3" -c "import torch" 2>/dev/null && ! "$dir/venv/bin/python3" -c "import torchsde" 2>/dev/null; then
+    echo "  ▶ adding torchsde (SD.Next MPS fix needs it)…"; "$dir/venv/bin/pip" install -q torchsde >/dev/null 2>&1 || true
+  fi
   echo "  ▶ starting SD ($dir) on :$SD_PORT … (first launch downloads torch + a model — slow)"
   ( cd "$dir" && nohup bash ./webui.sh ${SD_CMD:---api --listen --port ${SD_PORT}} >"$SD_LOG" 2>&1 & )
 }
