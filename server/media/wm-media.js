@@ -16,7 +16,7 @@
 // returns a clear error and the site falls back (never blocks the call).
 
 const http = require("http");
-const { spawn } = require("child_process");
+const { spawn, exec } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
@@ -50,6 +50,66 @@ function postJSON(url, obj, timeoutMs = 180000) {
   });
 }
 const stripDataUrl = (s) => String(s || "").replace(/^data:[^;]+;base64,/, "");
+
+// ---- SD lifecycle: bring SD up on demand, tear it down when idle ------------
+// SD is ephemeral. An /img request starts it (evicting the LLM first, so they never
+// share RAM), generates, and then — a short idle after the last image — the SD
+// process is KILLED (the only thing that actually frees its ~17 GB on Apple MPS).
+// The LLM is evicted ONLY here (when SD comes up); it is NOT restarted when SD dies —
+// it reloads on its own the next time a text/vision request reaches Ollama.
+const SERVER_DIR = path.join(__dirname, "..");            // .../server (wm.sh lives here)
+const SD_IDLE_MS = +(process.env.SD_IDLE_MS || 60000);    // kill SD this long after the last image
+const SD_BOOT_MS = +(process.env.SD_BOOT_MS || 150000);   // max wait for a cold start
+const _sdU = new URL(SD_URL);
+function sh(cmd) { return new Promise((r) => { try { exec(cmd, { timeout: 15000 }, () => r()); } catch (_) { r(); } }); }
+function sdReachable(ms = 2500) {
+  return new Promise((res) => {
+    const rq = http.request({ host: _sdU.hostname, port: _sdU.port, path: "/sdapi/v1/options", method: "GET", timeout: ms }, (u) => { u.resume(); res(u.statusCode === 200); });
+    rq.on("error", () => res(false)); rq.on("timeout", () => { rq.destroy(); res(false); }); rq.end();
+  });
+}
+let sdIdleTimer = null, sdStarting = null, sdModelLoaded = false;
+function getJSON(url, ms = 8000) {
+  return new Promise((res) => {
+    const u = new URL(url);
+    const rq = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: "GET", timeout: ms }, (up) => { const c = []; up.on("data", (x) => c.push(x)); up.on("end", () => { try { res(JSON.parse(Buffer.concat(c).toString("utf8"))); } catch (_) { res(null); } }); });
+    rq.on("error", () => res(null)); rq.on("timeout", () => { rq.destroy(); res(null); }); rq.end();
+  });
+}
+// SD.Next's API answers before the model is loaded → the first txt2img would abort
+// ("model not loaded"). Force-load the checkpoint (POST /options blocks until ready).
+async function sdLoadModel() {
+  const models = await getJSON(SD_URL + "/sdapi/v1/sd-models");
+  const title = models && models[0] && (models[0].title || models[0].model_name);
+  if (!title) return false;
+  try { await postJSON(SD_URL + "/sdapi/v1/options", { sd_model_checkpoint: title }, 180000); return true; } catch (_) { return false; }
+}
+function cancelSDKill() { if (sdIdleTimer) { clearTimeout(sdIdleTimer); sdIdleTimer = null; } }
+function scheduleSDKill() {
+  cancelSDKill();
+  sdIdleTimer = setTimeout(async () => {
+    sdIdleTimer = null; sdModelLoaded = false;
+    console.log("[wm-media] SD idle " + SD_IDLE_MS + "ms — killing to free RAM");
+    await sh("pkill -f 'launch.py --api'"); await sh("pkill -f 'webui.sh'");
+  }, SD_IDLE_MS);
+}
+function ensureSDup() {
+  if (sdStarting) return sdStarting;   // dedupe concurrent starts
+  sdStarting = (async () => {
+    if (!(await sdReachable())) {
+      console.log("[wm-media] bringing SD up (evicting the LLM first)…");
+      await sh("ollama stop active");   // free the LLM's RAM — the ONLY place the LLM is evicted
+      try { spawn("bash", [path.join(SERVER_DIR, "wm.sh"), "sd"], { detached: true, stdio: "ignore" }).unref(); } catch (_) {}
+      const deadline = Date.now() + SD_BOOT_MS;
+      while (Date.now() < deadline && !(await sdReachable())) await new Promise((r) => setTimeout(r, 2500));
+      if (!(await sdReachable())) return false;
+      sdModelLoaded = false;
+    }
+    if (!sdModelLoaded) { console.log("[wm-media] loading SD checkpoint…"); sdModelLoaded = await sdLoadModel(); }
+    return sdModelLoaded;
+  })().finally(() => { sdStarting = null; });
+  return sdStarting;
+}
 
 // ---- /img : Automatic1111-compatible txt2img / img2img --------------------
 async function genImage(spec) {
@@ -117,8 +177,19 @@ http.createServer(async (req, res) => {
     if (req.method === "POST" && url === "/img") {
       const spec = JSON.parse((await readBody(req)).toString("utf8") || "{}");
       if (!spec.prompt) return json(res, 400, { error: "prompt required" });
-      const b64 = await genImage(spec);
-      if (!b64) return json(res, 502, { error: "no image from SD backend" });
+      cancelSDKill();                                    // in use — don't let the idle timer kill it mid-work
+      const up = await ensureSDup();                     // start SD (evicting the LLM) if down; first image may cold-start ~1 min
+      if (!up) { scheduleSDKill(); return json(res, 503, { error: "SD didn't come up in time" }); }
+      // SD.Next's API answers 200 before it can actually generate, so the first
+      // txt2img can come back empty. Retry a few times, re-loading the checkpoint
+      // between tries, until it produces an image.
+      let b64 = null, err = null;
+      for (let attempt = 0; attempt < 6 && !b64; attempt++) {
+        if (attempt > 0) { await new Promise((r) => setTimeout(r, 5000)); await sdLoadModel(); }
+        try { b64 = await genImage(spec); } catch (e) { err = (e && e.message) || String(e); }
+      }
+      scheduleSDKill();                                  // work done → kill SD after it's idle (frees ~17 GB)
+      if (!b64) return json(res, 502, { error: err || "no image from SD backend (not ready?)" });
       return json(res, 200, { image: b64.startsWith("data:") ? b64 : "data:image/png;base64," + b64 });
     }
     if (req.method === "POST" && url === "/tts") {
