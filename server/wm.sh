@@ -255,7 +255,8 @@ case "${1:-up}" in
   light)      model_switch light ;;
   autostart)  autostart ;;
   sd)         start_sd ;;
+  sd-stop)    stop_sd; echo "  ✅ SD stopped (frees ~17 GB)" ;;
   sd-tune)    configure_sd_mem ;;
   tunnel)     configure_ngrok "${2:-${NGROK_DOMAIN:-}}" "${3:-${NGROK_AUTHTOKEN:-}}" ;;
-  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | sd | sd-tune | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
+  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | sd | sd-stop | sd-tune | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
 esac
