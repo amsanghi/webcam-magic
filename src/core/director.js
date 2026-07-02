@@ -10,6 +10,7 @@
 // only (so both screens don't fight); shared beats broadcast.
 
 import { ICON } from "./icons.js";
+import { TOOL_DOC } from "./ai.js";
 
 // modes the host spins up, grouped by which act they suit. Unknown ids are filtered
 // out by has(); every act keeps a couple of always-present ids so it's never empty.
@@ -22,9 +23,11 @@ const BY_ACT = {
 };
 const SAFE = ["kisscam", "dancebattle", "truthdare", "rps", "pop", "catch", "deeptalk", "telepathy", "thisorthat", "spinner", "wyr", "photobooth", "charades", "pictionary", "loversdice"];
 
-export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getModeActions, getModeInfo, modeIcon, isAuthority, memory, getRoom, grabFrame }) {
+export function createDirector({ ai, chat, tools, say, nav, modeAction, getMode, getModeActions, getModeInfo, modeIcon, isAuthority, memory, getRoom, grabFrame }) {
   let hostOn = false, lastBeat = 0, switchPending = false, greeted = "";
   let act = "warmup", actSince = 0, beats = 0, lastGlance = 0, greetedSession = false, recapDone = false;
+  let missions = null;               // {left, right, revealed} — the whispered secret missions
+  say = say || ((t) => chat.say("ai", t));   // shared voice: shows here AND on the partner's screen
 
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
   const rand = (a) => a[Math.floor(Math.random() * a.length)];
@@ -44,8 +47,11 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     if (ai.setTone) ai.setTone(lvl);
     return lvl;
   }
-  // memory-aware system preface for the host's own lines
-  const hostSys = (extra) => `You are Cupid, the warm, playful${spiceCeil() >= 2 ? ", uninhibited" : ""} host of a private couple's video-call app. ${extra || ""}${memory ? memory.forPrompt() : ""} Reply with ONE short line, emoji ok, no quotes, <=16 words.`;
+  // memory-aware system prefaces. hostSys → one short spoken line; agentSys → an
+  // agentic beat where Cupid may also ACT (JSON tool-calls via TOOL_DOC).
+  const persona = () => `You are Cupid, the warm, playful${spiceCeil() >= 2 ? ", uninhibited" : ""} host of a private couple's video-call night. You mix Hindi and English (natural Hinglish) when it fits.`;
+  const hostSys = (extra) => `${persona()} ${extra || ""}${memory ? memory.forPrompt() : ""} Reply with ONE short line, emoji ok, no quotes, <=16 words.`;
+  const agentSys = (extra) => `${persona()} ${extra || ""}${memory ? memory.forPrompt() : ""}`;
 
   // ---- personalization -----------------------------------------------------
   async function ensureNames() {
@@ -53,7 +59,7 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     const v = await chat.ask("Before I host — what should I call you two? (e.g. Alex & Sam)");
     if (!v) return;
     const parts = v.split(/&|,|\band\b|\+/i).map((s) => s.trim()).filter(Boolean);
-    if (memory) { memory.setProfile({ a: parts[0] || "", b: parts[1] || "" }); if (memory.profile.a) chat.say("ai", `Love it — ${names()} it is 💫`); }
+    if (memory) { memory.setProfile({ a: parts[0] || "", b: parts[1] || "" }); if (memory.profile.a) say(`Love it — ${names()} it is 💫`); }
   }
 
   // ---- session greeting: call back to last night if we remember one --------
@@ -62,8 +68,8 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     const lr = memory && memory.lastRecap();
     if (!lr) return;
     const fb = `back for more, ${names()}? 💕`;
-    if (ai.available()) ai.ask({ system: hostSys("Greet them warmly and reference last time in a few words, to show you remember."), user: `Last time: ${lr.text}`, max: 40, temp: 1.05 }, () => fb).then((t) => chat.say("ai", (t || fb).trim()));
-    else chat.say("ai", fb);
+    if (ai.available()) ai.ask({ system: hostSys("Greet them warmly and reference last time in a few words, to show you remember."), user: `Last time: ${lr.text}`, max: 40, temp: 1.05 }, () => fb).then((t) => say((t || fb).trim()));
+    else say(fb);
   }
 
   // ---- host (autopilot) toggle --------------------------------------------
@@ -72,10 +78,10 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     if (on) {
       await ensureNames();
       act = "warmup"; actSince = now(); recapDone = false; toneNow();
-      chat.say("ai", rand([`Okay ${names()}, I've got the night 🎬`, `Host mode on — sit back, ${names()} ✨`, `Leave it to me, ${names()} 💕`]));
+      say(rand([`Okay ${names()}, I've got the night 🎬`, `Host mode on — sit back, ${names()} ✨`, `Leave it to me, ${names()} 💕`]));
       lastBeat = now();
       sessionGreet();
-    } else { if (ai.setTone) ai.setTone(spiceCeil()); chat.say("ai", "All yours again — tap me back in whenever ✨"); }
+    } else { if (ai.setTone) ai.setTone(spiceCeil()); say("All yours again — tap me back in whenever ✨"); }
     return hostOn;
   }
   const isOn = () => hostOn;
@@ -90,14 +96,14 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     const chips = () => { if (greeted === modeId) chat.actions(introChips(modeId, mi.cat || "")); };
     if (ai.available()) {
       ai.ask({ system: hostSys(`React to them opening the "${mi.nm}" activity and invite them in.`), user: `They opened ${mi.nm}.`, max: 40, temp: 1.05 }, () => fb)
-        .then((t) => { if (greeted === modeId) { chat.say("ai", (t || fb).trim()); chips(); } });
-    } else { chat.say("ai", fb); chips(); }
+        .then((t) => { if (greeted === modeId) { say((t || fb).trim()); chips(); } });
+    } else { say(fb); chips(); }
   }
   function introChips(modeId, cat) {
     const chips = [];
     if (cat.includes("Talk") || cat.includes("AI")) chips.push(chip("Fresh one", ICON.sparkles, () => primaryAction(modeId)));
     else if (cat === "Games" || cat.includes("senses")) chips.push(chip("Hype us up", ICON.party, () => { tools.confetti(); tools.banner(`go ${names()}! 🎉`); }));
-    else if (modeId === "free") chips.push(chip("Set the mood", ICON.wand, () => { tools.mood("candlelight"); chat.say("ai", "mood: set 🕯️"); }));
+    else if (modeId === "free") chips.push(chip("Set the mood", ICON.wand, () => { tools.mood("candlelight"); say("mood: set 🕯️"); }));
     else chips.push(chip("Make it special", ICON.heartFill, () => tools.sweet()));
     if (grabFrame && ai.tier === 3 && ai.see) chips.push(chip("How do we look?", ICON.eye, () => glance(true)));
     chips.push(chip("Surprise us", ICON.shuffle, () => nav("ready", pickMode(modeId))));
@@ -119,7 +125,7 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     const img = grabFrame(); if (!img) return;
     const fb = rand([`you two look adorable right now 💕`, `mm, I love this energy ✨`]);
     const line = await ai.see({ system: hostSys("You can SEE their video right now — react to what you actually see: faces, expressions, what they're wearing or doing. Warm and specific."), user: "What do you see? React in one playful line.", image: img, max: 70, temp: 0.9 }, () => fb);
-    if (line) { chat.say("ai", line.trim()); if (memory) memory.note("saw", line.trim()); }
+    if (line) { say(line.trim()); if (memory) memory.note("saw", line.trim()); }
   }
 
   // ---- the night arc: advance the act from time + energy + hour ------------
@@ -133,7 +139,7 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     else if (act === "play" && mins > 6) next = spiceCeil() >= 2 && (r.kiss || r.heart) ? "spice" : "connect";
     else if (act === "spice" && mins > 6) next = "connect";
     if ((late && elapsedMin > 20) || elapsedMin > 75 || (r.zoned && mins > 2)) next = "winddown";
-    if (next !== act) { act = next; actSince = t; toneNow(); announceAct(); }
+    if (next !== act) { act = next; actSince = t; toneNow(); announceAct(); if (act === "play" && !missions && ai.available()) setTimeout(() => { if (hostOn) secretMissions(); }, 8000); }
   }
   function announceAct() {
     const line = {
@@ -143,8 +149,47 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
       winddown: [`let's wind down, ${names()} 🌙`, `come here — time to get cozy ✨`],
       warmup: [`let's ease in 💫`],
     }[act];
-    if (line) chat.say("ai", rand(line));
+    if (line) say(rand(line));
     if (act === "winddown") setTimeout(() => goodnight(), 20000);
+  }
+
+  // ---- the agentic beat: Cupid OBSERVES the room and DECIDES its own move ---
+  // (line / effect / mood / whisper / picture / game switch — via TOOL_DOC JSON).
+  // Falls back to a canned hostLine if the model returns nothing usable.
+  async function think() {
+    const r = room();
+    const pool = poolFor(act).slice(0, 8);
+    const obs = `Act: ${act}. Current activity: ${getMode()}. Energy ${(r.energy || 0).toFixed(2)}, idle ${Math.round((r.idleMs || 0) / 1000)}s, ${Math.round((r.elapsedMs || 0) / 60000)} min into the call, hour ${r.hour != null ? r.hour : "?"}.${r.kiss ? " They just kissed at the screen." : ""}${r.zoned ? " One of them looks zoned out." : ""} What's your move, Cupid?`;
+    const out = await ai.ask({
+      system: agentSys(`You are HOSTING their night. Decide ONE beat right now — a playful/loving line, and optionally one action that fits the moment.${TOOL_DOC} Game ids you may start: ${pool.join(", ")}. Keep the spoken line under 18 words.`),
+      user: obs, max: 160, temp: 1.05,
+    }, () => "");
+    if (!out) return hostLine();
+    const acted = ai.runActions(out);
+    const line = ((acted && acted.say) || out.replace(/\{[\s\S]*\}\s*$/, "")).trim();
+    if (line) say(line);
+    if (acted && acted.actions.length && memory) memory.note("play", `Cupid: ${acted.actions.map((a) => a.action).join(", ")}`);
+    if (!line && (!acted || !acted.actions.length)) hostLine();
+  }
+
+  // ---- 🤫 secret missions: whisper each partner a private objective ---------
+  async function secretMissions() {
+    if (missions) return; missions = { revealed: false };
+    const fb = () => JSON.stringify({ left: "Make them laugh in the next five minutes — without explaining why 😏", right: "Work the word 'destiny' into conversation like it's nothing" });
+    const out = await ai.ask({ system: agentSys(`Invent two SHORT secret missions for a couple on a video date — one per partner, playful and flirty${spiceCeil() >= 2 ? " (spicy welcome)" : ""}, each doable on camera within minutes. Reply ONLY with JSON: {"left":"…","right":"…"}.`), user: `Secret missions for ${names()}.`, max: 110, temp: 1.1 }, fb);
+    let m = null;
+    try { const s = out.indexOf("{"); m = JSON.parse(out.slice(s, out.lastIndexOf("}") + 1)); } catch (_) {}
+    if (!m || !m.left || !m.right) { try { m = JSON.parse(fb()); } catch (_) { missions = null; return; } }
+    missions = { left: String(m.left).slice(0, 160), right: String(m.right).slice(0, 160), revealed: false };
+    say(rand(["psst… you've each got a secret mission now. Check your whispers 🤫", "I just slipped you both a little secret — don't tell each other 😏"]));
+    tools.whisper({ to: 0, text: "Your secret mission: " + missions.left });
+    tools.whisper({ to: 1, text: "Your secret mission: " + missions.right });
+    if (memory) memory.note("play", "secret missions assigned");
+  }
+  function revealMissions() {
+    if (!missions || missions.revealed || !missions.left) return;
+    missions.revealed = true;
+    say(`mission reveal 🤫 — left had: "${missions.left}" · right had: "${missions.right}". Did you catch each other? 😏`);
   }
 
   // ---- autopilot beats (authority only; paced + jittered) ------------------
@@ -158,6 +203,9 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     const r = room();
     if (beats % 4 === 0 && ai.tier === 3 && grabFrame && ai.see) return glance(false);  // sometimes just look
     const roll = Math.random();
+    // with a capable model, half the beats are true agentic decisions; the rest stay
+    // canned (instant + free) so the night never hinges on generation latency.
+    if (ai.available() && ai.tier >= 2 && roll < 0.5) return think();
     if (r.idleMs > 45000 || r.energy < 0.15) { if (roll < 0.5) hostLine(); else proposeSwitch(pickMode(getMode())); }
     else if (roll < 0.38) ambient();
     else if (roll < 0.66) hostLine();
@@ -167,21 +215,21 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     rand([
       () => tools.effect("sparkle"),
       () => tools.confetti(),                            // broadcasts → both screens
-      () => { tools.mood(act === "winddown" ? "cozy" : act === "spice" ? "candlelight" : rand(["candlelight", "cozy", "party"])); chat.say("ai", rand(["setting the vibe 🕯️", "mood: adjusted ✨", "there we go 💫"])); },
+      () => { tools.mood(act === "winddown" ? "cozy" : act === "spice" ? "candlelight" : rand(["candlelight", "cozy", "party"])); say(rand(["setting the vibe 🕯️", "mood: adjusted ✨", "there we go 💫"])); },
       () => tools.effect("rainbow"),
       () => tools.sweet(),                               // broadcasts a sweet note
     ])();
   }
   function hostLine() {
     const fb = rand([`you're doing great, ${names()} 💫`, `${names()}, you two are trouble 😏`, `ok this is adorable 💕`, `quick — tell each other one thing you love 💬`, `eye contact… now 👀`]);
-    if (ai.available()) ai.ask({ system: hostSys("Keep the night lively with one warm/playful line."), user: `Act: ${act}. Keep it lively.`, max: 36, temp: 1.15 }, () => fb).then((t) => chat.say("ai", (t || fb).trim()));
-    else chat.say("ai", fb);
+    if (ai.available()) ai.ask({ system: hostSys("Keep the night lively with one warm/playful line."), user: `Act: ${act}. Keep it lively.`, max: 36, temp: 1.15 }, () => fb).then((t) => say((t || fb).trim()));
+    else say(fb);
   }
   function proposeSwitch(id) {
     if (!id || !getModeInfo(id) || id === getMode()) return;
     switchPending = true;
     const nm = getModeInfo(id).nm;
-    chat.say("ai", rand([`next up — ${nm}! 🎬`, `let's switch it up: ${nm}`, `${names()}, time for ${nm} 💫`]));
+    say(rand([`next up — ${nm}! 🎬`, `let's switch it up: ${nm}`, `${names()}, time for ${nm} 💫`]));
     let cancelled = false;
     const go = () => { if (memory) memory.note("play", `played ${nm}`); nav("play", id); };
     chat.actions([
@@ -194,12 +242,13 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
   // ---- end-of-night recap: summarize tonight into memory -------------------
   async function goodnight() {
     if (recapDone) return; recapDone = true;
+    revealMissions();
     const evs = memory ? memory.recent(12).map((e) => e.text) : [];
     const fb = `A cozy night in with ${names()}${evs.length ? " — " + evs.slice(0, 3).join(", ") : ""}.`;
     let text = fb;
     if (ai.available() && evs.length) text = (await ai.ask({ system: `You are Cupid. In ONE warm sentence, recap tonight for ${names()} so you remember it next time. Past tense, specific, sweet.`, user: `Tonight's moments: ${evs.join("; ")}.`, max: 70, temp: 0.9 }, () => fb)) || fb;
     if (memory) memory.recap((text || fb).trim());
-    chat.say("ai", rand([`goodnight, ${names()} — tonight was lovely 🌙`, `sleep well you two 💕 I'll remember tonight`]));
+    say(rand([`goodnight, ${names()} — tonight was lovely 🌙`, `sleep well you two 💕 I'll remember tonight`]));
   }
 
   // ---- make free chat agentic: chips + visual questions + remember ---------
@@ -216,13 +265,14 @@ export function createDirector({ ai, chat, tools, nav, modeAction, getMode, getM
     if (/dare|truth/.test(t)) addMode("truthdare");
     if (/\bdice|roll/.test(t)) addMode("loversdice");
     if (/bored|what (can|should|do)|which game|play|fun/.test(t)) chips.push(chip("Pick a game", ICON.shuffle, () => nav("ready", pickMode())));
+    if (/mission|secret|mischief/.test(t) && ai.available()) chips.push(chip("Secret missions 🤫", ICON.sparkles, () => secretMissions()));
     if (/mood|romantic|cozy|candle|vibe|dim/.test(t)) chips.push(chip("Set the mood", ICON.wand, () => { tools.mood("candlelight"); }));
     if (/miss|love you|sweet|adore|cute/.test(t)) chips.push(chip("Send a love note", ICON.heartFill, () => tools.sweet()));
     if (chips.length) chat.actions(chips.slice(0, 3));
   }
 
   return {
-    setHost, isOn, intro, tick, afterChat, glance, goodnight,
+    setHost, isOn, intro, tick, afterChat, glance, goodnight, secretMissions,
     setSpice: (n) => memory && memory.setSpice(n),
     get names() { return names(); },
     get act() { return act; },

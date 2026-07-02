@@ -43,6 +43,14 @@ export function createChat({ voice, onSend, serverTts, serverStt }) {
     return b;
   }
   function say(from, text) { if (text != null && text !== "") bubble(from, text); if (from === "ai") speak(text); }
+  // A private message from Cupid only THIS device sees (the whisper channel).
+  // Never spoken aloud — the partner could hear it through the call mic.
+  function whisper(text) {
+    if (!text) return;
+    const b = bubble("ai", "🤫 " + text);
+    b.classList.add("whisper");
+    try { navigator.vibrate && navigator.vibrate(40); } catch (_) {}
+  }
   function clear() { feed.innerHTML = ""; typingEl = null; if (pending) { const p = pending; endAsk(); p.resolve(null); } }
 
   // Cupid's animated "…" bubble while a reply is being generated.
@@ -163,5 +171,5 @@ export function createChat({ voice, onSend, serverTts, serverStt }) {
     }
   }
 
-  return { say, clear, ask, actions, speak, thinking, get busy() { return !!pending; }, get ttsOn() { return ttsOn; } };
+  return { say, whisper, clear, ask, actions, speak, thinking, get busy() { return !!pending; }, get ttsOn() { return ttsOn; } };
 }
