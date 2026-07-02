@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..800;1,9..144,500..800&family=Outfit:wght@400..800&display=swap" />
-<link rel="stylesheet" href="./style.css?v=9" />
+<link rel="stylesheet" href="./style.css?v=10" />
 <!-- redeploy nudge: force a fresh GitHub Pages build -->
 </head>
 <body>
@@ -44,6 +44,7 @@
   <!-- STEP 2 — pick a mode -------------------------------------------------->
   <section id="menu" class="screen hidden">
     <div class="menubar">
+      <button class="chip" id="backToCall" data-tip="Back to your call"><i class="icon" data-ic="arrowLeft"></i><span class="lbl">Back to call</span></button>
       <span class="pill status" id="connPill">solo</span>
       <span class="grow"></span>
       <span class="pill" id="streak" data-tip="hearts shared"><i class="icon" data-ic="heartFill"></i><span class="lbl">x0</span></span>
@@ -63,6 +64,7 @@
       </div>
       <button class="chip" id="surpriseBtn" data-tip="Pick a random mode"><i class="icon" data-ic="shuffle"></i><span class="lbl">Surprise us</span></button>
     </div>
+    <div id="deck"></div>
     <div id="menuGrid"></div>
     <div id="menuEmpty" class="hidden"></div>
   </section>
@@ -95,6 +97,7 @@
         <button class="chip" id="sizeBtn" data-tip="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
         <button class="chip icon-btn" id="enhanceBtn" data-tip="Video look: Natural" aria-label="Video enhancement"><i class="icon" data-ic="enhance"></i></button>
         <button class="chip icon-btn" id="fxBtn" data-tip="Effects on" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
+        <button class="chip icon-btn" id="howBtn" data-tip="How to play" aria-label="How to play"><i class="icon" data-ic="help"></i></button>
       </div>
       <div class="tb-group">
         <button class="chip icon-btn" id="loveBtn2" data-tip="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
@@ -109,6 +112,8 @@
         <div class="dock-head">
           <span class="dock-avatar" data-ic="sparkles"></span>
           <div class="dock-title"><strong>Cupid</strong><small>your playful AI companion</small></div>
+          <span class="grow"></span>
+          <button type="button" id="dockMin" class="icon-btn" data-tip="Tuck Cupid away" aria-label="Minimize chat"><i class="icon" data-ic="minimize"></i></button>
         </div>
         <div id="actionbar" class="hidden"></div>
         <div id="chatFeed"></div>
@@ -120,6 +125,9 @@
           <button type="submit" id="chatSend" data-tip="Send" data-tip-pos="top" aria-label="Send"><i class="icon" data-ic="send"></i></button>
         </form>
       </aside>
+      <button type="button" id="dockFab" class="hidden" aria-label="Open Cupid chat"><span class="fab-avatar" data-ic="sparkles"></span><span id="dockBadge" class="hidden">0</span></button>
+      <div id="toasts" aria-live="polite"></div>
+      <div id="howToast" class="hidden"><div class="ht-head"><span id="htIcon">✨</span><strong id="htName"></strong><button type="button" id="htClose" class="icon-btn" aria-label="Dismiss"><i class="icon" data-ic="x"></i></button></div><ul id="htHow"></ul></div>
       <div id="stageCol">
         <div id="scoreBar" class="hidden">
           <div class="sb-side"><span class="sb-name" id="sbName0">you</span><span class="sb-score" id="sbScore0">0</span></div>

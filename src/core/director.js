@@ -106,7 +106,7 @@ export function createDirector({ ai, chat, tools, say, nav, modeAction, getMode,
     else if (modeId === "free") chips.push(chip("Set the mood", ICON.wand, () => { tools.mood("candlelight"); say("mood: set 🕯️"); }));
     else chips.push(chip("Make it special", ICON.heartFill, () => tools.sweet()));
     if (grabFrame && ai.tier === 3 && ai.see) chips.push(chip("How do we look?", ICON.eye, () => glance(true)));
-    chips.push(chip("Surprise us", ICON.shuffle, () => nav("ready", pickMode(modeId))));
+    chips.push(chip("Surprise us", ICON.shuffle, () => nav("play", pickMode(modeId))));
     if (!hostOn) chips.push(chip("You host", ICON.crown, () => setHost(true)));
     return chips.slice(0, 3);
   }
@@ -259,12 +259,12 @@ export function createDirector({ ai, chat, tools, say, nav, modeAction, getMode,
     if (/(how do (i|we) look|what.*(wear|holding|behind me|in my|do you see)|rate (my|our)|look at (me|us|this))/.test(t)) { glance(true); return; }
     // "draw/paint us …" → conjure a picture via the home image server
     if (tools.image && /((draw|paint|make|generate|show)\b.{0,18}\b(us|me|picture|photo|portrait|image|art|selfie)|(picture|photo|portrait) of us)/.test(t)) { tools.image(text.replace(/^\s*(please\s+)?(draw|paint|make|generate|show)\s+(me\s+|us\s+)?(a\s+)?/i, "").trim() || undefined); return; }
-    const addMode = (id) => { const mi = getModeInfo(id); if (mi) chips.push(chip(mi.nm, iconOf(id), () => nav("ready", id))); };
+    const addMode = (id) => { const mi = getModeInfo(id); if (mi) chips.push(chip(mi.nm, iconOf(id), () => nav("play", id))); };
     if (/\bkiss/.test(t)) addMode("kisscam");
     if (/danc/.test(t)) addMode("dancebattle");
     if (/dare|truth/.test(t)) addMode("truthdare");
     if (/\bdice|roll/.test(t)) addMode("loversdice");
-    if (/bored|what (can|should|do)|which game|play|fun/.test(t)) chips.push(chip("Pick a game", ICON.shuffle, () => nav("ready", pickMode())));
+    if (/bored|what (can|should|do)|which game|play|fun/.test(t)) chips.push(chip("Pick a game", ICON.shuffle, () => nav("play", pickMode())));
     if (/mission|secret|mischief/.test(t) && ai.available()) chips.push(chip("Secret missions 🤫", ICON.sparkles, () => secretMissions()));
     if (/mood|romantic|cozy|candle|vibe|dim/.test(t)) chips.push(chip("Set the mood", ICON.wand, () => { tools.mood("candlelight"); }));
     if (/miss|love you|sweet|adore|cute/.test(t)) chips.push(chip("Send a love note", ICON.heartFill, () => tools.sweet()));

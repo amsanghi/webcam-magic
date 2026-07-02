@@ -736,7 +736,7 @@ function navTo(screen, mode, fromNet) {
   if (mode) pendingMode = mode;
   if (screen === "play") enterPlay(pendingMode);
   else if (screen === "ready") { showReady(pendingMode); show("ready"); }
-  else show("menu");
+  else { buildDeck(); show("menu"); }
   if (!fromNet && inCall) net.send({ t: "nav", screen, mode: pendingMode });
 }
 function enterPlay(mode) {
@@ -760,6 +760,8 @@ function enterPlay(mode) {
   if (host.chat && mi) host.chat.say("sys", mi.nm);
   if (host.director) host.director.intro(mode);           // the host greets + offers one-tap chips
   show("play");
+  wakeChrome();
+  if (!howShown.has(mode)) { howShown.add(mode); showHowTo(mode); } else hideHowTo();
 }
 function showReady(mode) {
   const m = MODE_INFO[mode] || { ic: "✨", nm: mode, how: [], cat: "" };
@@ -778,7 +780,7 @@ function buildMenu() {
       const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode"; card.dataset.cat = ci;
       card.dataset.nm = (m.nm + " " + cat).toLowerCase();
       card.innerHTML = `<div class="ic">${modeIcon(id, cat)}</div><div class="nm">${m.nm}</div>`;
-      card.onclick = () => navTo("ready", id);
+      card.onclick = () => navTo("play", id);
       grid.appendChild(card);
     }
   }
@@ -787,6 +789,7 @@ function buildMenu() {
 // live search over the menu cards; also hides category titles that end up empty
 function filterMenu(q) {
   q = (q || "").trim().toLowerCase(); const grid = $("menuGrid");
+  const deck = $("deck"); if (deck) deck.classList.toggle("hidden", !!q);
   let shown = 0;
   grid.querySelectorAll(".card-mode").forEach((c) => { const hide = !!q && !(c.dataset.nm || "").includes(q); c.classList.toggle("filtered", hide); if (!hide) shown++; });
   grid.querySelectorAll(".cat-title").forEach((t) => {
@@ -798,7 +801,77 @@ function filterMenu(q) {
   if (q && shown === 0) { empty.textContent = `No modes match “${q}”. Try another word or press Surprise us.`; empty.classList.remove("hidden"); }
   else empty.classList.add("hidden");
 }
-function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "free"); navTo("ready", ids[Math.floor(Math.random() * ids.length)]); }
+function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "free"); navTo("play", ids[Math.floor(Math.random() * ids.length)]); }
+
+// ---- "✨ Right now" deck: Cupid-curated picks for this moment, atop the catalog
+const DECK_POOLS = {
+  early: ["thisorthat", "wyr", "rps", "pop", "spinner", "photobooth", "trivia", "catch"],
+  mid: ["aigame", "dancebattle", "charades", "pictionary", "howwell", "telepathy", "reaction", "photobooth"],
+  late: ["truthdare", "loversdice", "neverhave", "roleplay", "aitruth", "kisscam", "slowdance", "deeptalk"],
+};
+function buildDeck() {
+  const deck = $("deck"); if (!deck) return; deck.innerHTML = "";
+  const h = new Date().getHours();
+  const pool = h >= 22 || h < 5 ? DECK_POOLS.late : h >= 18 ? DECK_POOLS.mid : DECK_POOLS.early;
+  const sample = (arr) => { const a = arr.filter((id) => MODE_INFO[id] && id !== games.mode); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const picks = [...new Set(["aigame", ...sample(pool)])].slice(0, 6);
+  const title = document.createElement("div"); title.className = "deck-title"; title.textContent = "✨ Right now"; deck.appendChild(title);
+  const row = document.createElement("div"); row.className = "deck-row"; deck.appendChild(row);
+  for (const id of picks) {
+    const m = MODE_INFO[id]; if (!m) continue;
+    const c = document.createElement("div"); c.className = "deck-card"; c.dataset.cat = CAT_ORDER.indexOf(m.cat);
+    c.innerHTML = `<div class="ic">${modeIcon(id, m.cat)}</div><div class="d-name"></div><div class="d-sub"></div>`;
+    c.querySelector(".d-name").textContent = m.nm;
+    c.querySelector(".d-sub").textContent = (m.how && m.how[0]) || "";
+    c.onclick = () => navTo("play", id);
+    row.appendChild(c);
+  }
+}
+
+// ---- how-to toast: guidelines float over the video instead of a blocking screen
+const howShown = new Set();
+let htTimer = 0;
+function showHowTo(mode) {
+  const m = MODE_INFO[mode]; if (!m || !m.how || !m.how.length) return;
+  $("htIcon").textContent = m.ic || "✨"; $("htName").textContent = m.nm;
+  $("htHow").innerHTML = m.how.map((h) => `<li>${h}</li>`).join("");
+  $("howToast").classList.remove("hidden");
+  clearTimeout(htTimer); htTimer = setTimeout(hideHowTo, 12000);
+}
+function hideHowTo() { $("howToast").classList.add("hidden"); clearTimeout(htTimer); }
+$("htClose").addEventListener("click", hideHowTo);
+$("howBtn").addEventListener("click", () => showHowTo(games.mode));
+
+// ---- Cupid dock: tuckable; while tucked, his lines float over the video ------
+let dockMin = false, unread = 0;
+function reflectBadge() { const b = $("dockBadge"); b.textContent = unread > 9 ? "9+" : unread; b.classList.toggle("hidden", !unread); }
+function setDockMin(min) {
+  dockMin = min; unread = 0; reflectBadge();
+  $("play").classList.toggle("dock-min", min);
+  $("dockFab").classList.toggle("hidden", !min);
+}
+$("dockMin").addEventListener("click", () => setDockMin(true));
+$("dockFab").addEventListener("click", () => setDockMin(false));
+function pushToast(text) {
+  const wrap = $("toasts"); const el = document.createElement("div"); el.className = "toast";
+  el.innerHTML = `<span class="t-avatar">${ICON.sparkles}</span><span></span>`;
+  el.lastElementChild.textContent = text;
+  wrap.appendChild(el);
+  while (wrap.children.length > 3) wrap.removeChild(wrap.firstChild);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 400); }, 6500);
+}
+{ // while tucked away, Cupid/partner messages surface over the video + badge up
+  const origSay = chat.say, origWhisper = chat.whisper;
+  chat.say = (from, text) => { origSay(from, text); if (dockMin && playing && text && (from === "ai" || from === "partner")) { pushToast(text); unread++; reflectBadge(); } };
+  chat.whisper = (text) => { origWhisper(text); if (dockMin && playing && text) { pushToast("🤫 " + text); unread++; reflectBadge(); } };
+}
+
+// ---- idle chrome: the top bar melts away so the two of you fill the screen ---
+let chromeT = 0;
+function wakeChrome() { $("play").classList.remove("chrome-idle"); clearTimeout(chromeT); chromeT = setTimeout(() => $("play").classList.add("chrome-idle"), 4500); }
+["pointermove", "pointerdown", "keydown", "touchstart"].forEach((ev) => $("play").addEventListener(ev, wakeChrome, { passive: true }));
+
+$("backToCall").addEventListener("click", () => navTo("play", games.mode || "free"));
 
 // ✨ AI status pill (menu + play). Shows tier/load state; click loads the model.
 function aiPillText(short) {
@@ -866,7 +939,7 @@ async function boot(callMode) {
     ai.init();
     inCall = !!callMode;
     if (callMode) connect($("roomInput").value.trim(), stream); else setConn("solo");
-    show("menu");
+    navTo("play", "free", true);          // the date starts ON the call — the catalog is a layer you summon
     requestAnimationFrame(loop);
   } catch (e) { $("lobbyHint").textContent = "Couldn't start: " + (e.message || e) + " — allow camera & use https/localhost."; }
 }
