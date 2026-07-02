@@ -109,15 +109,26 @@ model_switch() {   # heavy|light via the "active" alias (site always requests "a
   else echo "  ⚠ couldn't set '$active' (is it pulled? run ./setup.sh) — leaving the current one"; fi
 }
 
-public_url() { grep -oE 'https://[a-zA-Z0-9.-]+\.(ngrok[a-z.-]*|trycloudflare\.com)' /tmp/webcam-magic-ngrok.log 2>/dev/null | tail -1; }
+# Our public tunnel = an ngrok agent actually forwarding the proxy (:11435). A
+# different ngrok (e.g. another app on another port) does NOT count. The real URL
+# comes from ngrok's local API, not the log (the log shows the domain even on error).
+wm_ngrok_up() { pgrep -f "ngrok http 11435" >/dev/null 2>&1; }
+other_ngrok() { pgrep -lf "ngrok http" 2>/dev/null | grep -qv "ngrok http 11435"; }
+tunnel_url()  { curl -sf --max-time 2 http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.(ngrok[a-z.-]*|trycloudflare\.com)' | head -1; }
 
 status() {
   echo "Webcam Magic — home AI status:"
   ollama_up && echo "  ✅ text + vision   (Ollama :11434)"      || echo "  ✗  text + vision   (Ollama :11434)"
-  proxy_up  && echo "  ✅ tunnel proxy    (:11435 → your URL)"  || echo "  ✗  tunnel proxy    (:11435)"
+  proxy_up  && echo "  ✅ local proxy     (:11435)"             || echo "  ✗  local proxy     (:11435)"
   media_up  && echo "  ✅ voice + images  (wm-media :8189)"     || echo "  ✗  voice + images  (wm-media :8189)"
   sd_up     && echo "  ✅ image gen       (Stable Diffusion :$SD_PORT)" || echo "  –  image gen       (SD not running)"
-  local u; u="$(public_url)"; [ -n "$u" ] && echo "  🌐 public URL:     $u"
+  if wm_ngrok_up; then
+    echo "  ✅ public tunnel   (ngrok → :11435)"
+    local u; u="$(tunnel_url)"; [ -n "$u" ] && echo "  🌐 public URL:     $u"
+  else
+    echo "  ✗  public tunnel   (webcam-magic's ngrok is NOT running — the site can't reach this server remotely)"
+    other_ngrok && echo "     ↳ a different ngrok tunnel holds your account/domain; free ngrok allows only one. Fix: stop it, or move webcam-magic to Cloudflare (ask me)."
+  fi
 }
 
 up() {
@@ -143,7 +154,13 @@ up() {
   echo
   status
   echo
-  echo "✅ Up (model: $model). First use loads the model, so the first message/photo is slow, then fast."
+  if ! wm_ngrok_up && other_ngrok; then
+    echo "⚠ Public tunnel did NOT start: another ngrok tunnel already holds your domain (free ngrok = one at a time)."
+    echo "  The LOCAL stack is up, but your phones/partner can't reach it yet. Fix: stop that other tunnel and re-run,"
+    echo "  or let me switch webcam-magic to a Cloudflare tunnel (coexists with ngrok, no conflict)."
+    echo
+  fi
+  echo "✅ Local stack up (model: $model). First use loads the model, so the first message/photo is slow, then fast."
   echo "   Re-run anytime — it only installs what's missing (first-run installs can take a while)."
   echo "   Make it fully hands-off (boots on its own):  ./wm.sh autostart"
 }
