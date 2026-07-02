@@ -171,9 +171,16 @@ static decks (kept in sync exactly like the other prompt games).
 
 **Opt-in + lazy:** detecting a tier downloads nothing. The model only loads when you press **⬇ AI**
 in an AI mode (one-time download, then cached); generation runs in a **Web Worker** off the render
-loop. The **AI Game Master** goes further — the model emits tool-call JSON that the app executes
-(fire effects, set the mood, jump into a game), turning it into a host that actually drives the
-night. The tone (bold/adult, at your discretion) lives in the `AI_SYS` prompt in `core/ai.js`.
+loop. The tone (bold/adult, at your discretion) lives in the `AI_SYS` prompt in `core/ai.js`.
+
+**Agentic Cupid:** Cupid isn't just a chatbot — chat replies and the Director's host beats can end
+in a tool-call JSON block (`TOOL_DOC` in `core/ai.js`) that the app executes: fire effects, set the
+mood, splash a banner, jump into a game, paint a picture, `remember` a fact into couple memory, or
+**`whisper`** — a private message only ONE partner sees (🤫 bubble), which powers secret missions
+during host mode. Cupid's lines and shared actions mirror to BOTH screens over the data channel
+(`{t:"chat"}` / `{t:"ai-act"}` / `{t:"whisper"}`), so the host is present on both sides of the call.
+In host mode, half the beats are true agentic decisions: Cupid observes the room (energy, idle,
+kisses, time) and decides its own move; it speaks natural Hinglish.
 
 Runs great on a desktop; on iPhone keep to the light tier (Safari's WebGPU memory limit caps model
 size). The static tier is always the floor, so the AI features degrade gracefully everywhere.

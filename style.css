@@ -175,6 +175,8 @@ button .icon { width: 1.05em; height: 1.05em; }
 .msg.you .bubble { background: var(--grad); color: #fff; border-bottom-right-radius: 5px; box-shadow: 0 6px 16px -8px rgba(255, 92, 138, 0.7); }
 .msg.ai { align-self: flex-start; }
 .msg.ai .bubble { background: rgba(155, 107, 255, 0.16); border: 1px solid rgba(155, 107, 255, 0.32); border-bottom-left-radius: 5px; }
+/* 🤫 a whisper — a secret from Cupid only THIS device sees */
+.msg.ai .bubble.whisper { background: rgba(255, 92, 168, 0.10); border: 1px dashed rgba(255, 122, 190, 0.6); font-style: italic; box-shadow: 0 0 18px -6px rgba(255, 92, 168, 0.5) inset; }
 .msg.partner { align-self: flex-start; }
 .msg.partner .bubble { background: rgba(124, 180, 255, 0.14); border: 1px solid rgba(124, 180, 255, 0.30); border-bottom-left-radius: 5px; }
 .msg.sys { align-self: center; max-width: 100%; }

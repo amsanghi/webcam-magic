@@ -9,7 +9,7 @@ import { createVoice } from "./perception/voice.js";
 import { createHost } from "./core/host.js";
 import { createDetectors } from "./core/detectors.js";
 import { createAudio } from "./core/audio.js";
-import { createAI } from "./core/ai.js";
+import { createAI, AI_SYS, TOOL_DOC } from "./core/ai.js";
 import { createChat } from "./core/chat.js";
 import { ICON, hydrateIcons } from "./core/icons.js";
 import { hudReset, hudState } from "./modes/ui.js";
@@ -65,20 +65,37 @@ const { stepObjects, stepPose, stepSeg } = createDetectors(host, localVideo);
 const audio = createAudio(host, () => games.mode === "free" && fxOn);
 
 // ---- AI layer (host.ai): tiered on-device LLM + powerhouse→receiver broadcast.
-// `aiTools` is the vocabulary the AI Game Master can call (emit as JSON actions).
-const aiTools = {
+// `aiTools` is Cupid's vocabulary (emitted as JSON actions from chat, the director's
+// host beats, and the Game Master mode). `aiToolsLocal` holds the pure local effect;
+// the tools in AI_SHARED are wrapped to also broadcast `{t:"ai-act"}` so Cupid's
+// moves land on BOTH screens, not just the device that generated them.
+// Cupid speaking is the same: aiSay() shows the line here AND mirrors it across.
+function aiSay(text) { if (!text) return; if (host.chat) host.chat.say("ai", text); net.send({ t: "chat", who: "ai", text }); }
+const aiToolsLocal = {
   effect: (n) => { const map = { confetti: () => fireConfetti(), hearts: () => FX.flood(0, W, ["❤️", "💖", "💕"], 60, true), rainbow: () => FX.triggerRainbow(), sparkle: () => FX.confetti(W / 2, H * 0.4, 20), shake: () => FX.addShake(0.5) }; (map[n] || map.sparkle)(); },
   mood: (t) => { const map = { candlelight: () => { FX.setWeather("stars", 0.5); FX.setTint(255, 150, 120, 0.18); }, party: () => { FX.triggerRainbow(); FX.setWeather("stars", 0.6); }, cozy: () => FX.setTint(255, 170, 140, 0.15) }; (map[t] || map.cozy)(); },
   weather: (t) => { const m = { sun: ["sun", 0.7], rain: ["rain", 0.6], stars: ["stars", 0.6] }; const w = m[t] || m.stars; FX.setWeather(w[0], w[1]); },
   banner: (txt) => FX.banner(W / 2, H * 0.3, String(txt || "").slice(0, 60)),
+  award: (a) => { const title = String((a && a.title) || a || "champion").slice(0, 50); FX.banner(W / 2, H * 0.3, "🏆 " + title); FX.confetti(MID * 0.5, H * 0.4, 18); FX.confetti(MID * 1.5, H * 0.4, 18); FX.Sound.chime(); },
   game: (id) => { if (MODE_INFO[id]) navTo("play", id); },
   menu: () => navTo("menu"),
   snap: () => host.snapMoment(),
   enhance: (lvl) => { if (ENHANCE[lvl]) { enhanceLevel = lvl; try { localStorage.setItem("wm_enh", lvl); } catch (_) {} reflectEnhance(); } },
   sweet: () => sendSweet(),
   confetti: () => fireConfetti(),
-  say: (txt) => { if (host.chat && txt) host.chat.say("ai", String(txt)); },
+  say: (txt) => { if (txt) aiSay(String(txt)); },
   ask: (q) => { if (host.chat && q) return host.chat.ask(String(q)); },
+  // a fact worth keeping → straight into the couple's long-term memory
+  remember: (t) => { if (t && host.memory) host.memory.note("note", String(t)); },
+  // 🤫 the whisper channel: a private line only ONE partner sees. `to` is the
+  // absolute player index (0 = left/authority, 1 = right) — self-routing, so it
+  // works no matter which device ran the action.
+  whisper: (a) => {
+    const text = String((a && a.text) || (typeof a === "string" ? a : "") || "").slice(0, 200); if (!text) return;
+    const to = a && a.to != null ? (a.to | 0) : 1 - mySide;
+    if (to === mySide) { if (host.chat && host.chat.whisper) host.chat.whisper(text); }
+    else net.send({ t: "whisper", text });
+  },
   // 🖼 conjure a picture via the home image server → Scrapbook + shared to partner
   image: (prompt) => {
     if (!host.ai || !host.ai.canImage) { if (host.chat) host.chat.say("ai", "(turn on the home image server to make pictures ✨ — see server/media)"); return; }
@@ -90,6 +107,9 @@ const aiTools = {
     });
   },
 };
+const AI_SHARED = ["effect", "mood", "weather", "banner", "award"];
+const aiTools = Object.assign({}, aiToolsLocal);
+for (const k of AI_SHARED) aiTools[k] = (arg) => { aiToolsLocal[k](arg); net.send({ t: "ai-act", a: k, arg }); };
 const ai = createAI({ net, getAuthority: () => amInitiator, tools: aiTools });
 host.ai = ai;
 // console helper to point the app at your home AI server (see server/README.md):
@@ -119,7 +139,18 @@ const CHAT_FB = ["mm, tell me more 😏", "you two are trouble 💕", "I like wh
 function defaultChat(text) {
   net.send({ t: "chat", who: "partner", text });                 // partner sees my message
   if (host.chat.thinking) host.chat.thinking(true);
-  host.ai.ask({ user: text, max: 140 }, () => FX.pick(CHAT_FB)).then((r) => { if (host.chat.thinking) host.chat.thinking(false); if (r) { host.chat.say("ai", r); net.send({ t: "chat", who: "ai", text: r }); } if (host.director) host.director.afterChat(text); });
+  // Tool-aware: Cupid can answer AND act (effects, mood, whispers, game switches,
+  // pictures…) — any trailing JSON block is executed and stripped from the bubble.
+  host.ai.ask({ system: AI_SYS + TOOL_DOC + (host.memory ? host.memory.forPrompt() : ""), user: text, max: 200 }, () => FX.pick(CHAT_FB)).then((r) => {
+    if (host.chat.thinking) host.chat.thinking(false);
+    if (r) {
+      const acted = host.ai.runActions(r);
+      let show = r.replace(/\{[\s\S]*\}\s*$/, "").trim();
+      if (!show && acted) show = acted.say;
+      if (show) aiSay(show);
+    }
+    if (host.director) host.director.afterChat(text);
+  });
 }
 const chat = createChat({
   voice: host.voice,
@@ -132,7 +163,7 @@ host.ask = chat.ask;      // inline dock input replaces the blocking modal
 
 // ---- AI Director: the host that runs the show (proactive + agentic) -------
 const director = createDirector({
-  ai, chat, tools: aiTools,
+  ai, chat, tools: aiTools, say: aiSay,
   nav: (screen, mode) => navTo(screen, mode),
   modeAction: (a) => games.action(a),
   getMode: () => games.mode,
@@ -633,6 +664,8 @@ function route(data) {
   if (data.t === "cap" || data.t === "llm-req" || data.t === "llm-res") { host.ai.onNet(data); return; }
   if (data.t === "mem") { memory.applyRemote(data.snap); return; }
   if (data.t === "chat") { host.chat.say(data.who, data.text); return; }
+  if (data.t === "ai-act") { const fn = aiToolsLocal[data.a]; if (fn) try { fn(data.arg); } catch (_) {} return; }   // Cupid's move, mirrored to this screen
+  if (data.t === "whisper") { host.chat.whisper(data.text); return; }                                               // a secret meant only for me
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
   games.onNet(data); handleFreeNet(data);
 }
