@@ -65,6 +65,18 @@ core services are login agents, so they come back on every boot on their own.
 only then pulls the big model. `SD_DIR=/path`, `SD_CMD=…`, or `WM_NO_INSTALL=1` override the defaults.
 The older `start.sh` / `stop.sh` still work, but `wm.sh` supersedes them.
 
+### Setting (or changing) the tunnel — and coexisting with another ngrok tunnel
+```bash
+./wm.sh tunnel <your-domain.ngrok-free.app> <your-authtoken>
+```
+This bakes the token into **webcam-magic's ngrok agent only** (via `--authtoken`), so it does **not**
+touch the shared `ngrok config` and **won't disturb another ngrok tunnel** you run. Free ngrok allows
+one tunnel *per account/domain*, so if you already run another tunnel (e.g. WatchTogether on your first
+account), **make a second free ngrok account** for webcam-magic — its own authtoken + its own reserved
+domain — and pass those here. Both tunnels then run at once. Point the site once at the new domain
+(`?ai=https://<domain>` or the ✨ pill); it's permanent. `status` shows the tunnel as up **only** when
+webcam-magic's own ngrok is really forwarding `:11435`.
+
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.
 - **Image generation (Stable Diffusion):** run ComfyUI / AUTOMATIC1111, tunnel its port, add a mode.

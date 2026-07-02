@@ -64,10 +64,7 @@ ensure_core() {
   brew_ensure ollama; brew_ensure node; brew_ensure ngrok || true
   install_agent com.webcam-magic.ollama com.webcam-magic.ollama.plist
   install_agent com.webcam-magic.proxy  com.webcam-magic.proxy.plist "s#__PROXY_JS__#${HERE}/proxy.js#g"
-  if [ ! -f "$HOME/Library/LaunchAgents/com.webcam-magic.ngrok.plist" ] && [ -n "${NGROK_DOMAIN:-}" ]; then
-    [ -n "${NGROK_AUTHTOKEN:-}" ] && ngrok config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1 || true
-    install_agent com.webcam-magic.ngrok com.webcam-magic.ngrok.plist "s|__NGROK_DOMAIN__|${NGROK_DOMAIN}|g"
-  fi
+  if [ -n "${NGROK_DOMAIN:-}" ] && [ -n "${NGROK_AUTHTOKEN:-}" ]; then configure_ngrok "$NGROK_DOMAIN" "$NGROK_AUTHTOKEN"; fi
 }
 ensure_media() {
   [ -f "$HOME/Library/LaunchAgents/com.webcam-magic.media.plist" ] && return 0
@@ -78,6 +75,20 @@ ensure_sd() {
   have git || brew_ensure git
   echo "  ▶ installing Stable Diffusion (SD.Next → $SD_DEFAULT_DIR, one-time)…"
   git clone --depth 1 "$SD_REPO" "$SD_DEFAULT_DIR" >/dev/null 2>&1 && echo "  ✅ cloned SD.Next (its first launch installs deps + a default model)" || echo "  ⚠ couldn't clone SD — see server/media/README.md"
+}
+# Point webcam-magic's tunnel at YOUR ngrok domain using ITS OWN account token
+# (baked into this agent only — does NOT touch the shared ngrok config, so it runs
+# alongside any other ngrok tunnel you have). Run once: ./wm.sh tunnel <domain> <token>
+configure_ngrok() {   # $1=domain  $2=authtoken
+  local domain="${1:-}" token="${2:-}"
+  if [ -z "$domain" ] || [ -z "$token" ]; then echo "  usage: ./wm.sh tunnel <your-ngrok-domain> <authtoken>"; return 1; fi
+  local P="$HOME/Library/LaunchAgents/com.webcam-magic.ngrok.plist"
+  sed -e "s|__NGROK_DOMAIN__|${domain}|g" -e "s|__NGROK_AUTHTOKEN__|${token}|g" "$HERE/com.webcam-magic.ngrok.plist" > "$P"
+  launchctl unload "$P" 2>/dev/null || true; launchctl load "$P"
+  sleep 2
+  if wm_ngrok_up; then echo "  ✅ webcam-magic tunnel → https://${domain}  (own ngrok account — coexists with your other tunnel)"
+  else echo "  ⚠ ngrok didn't come up — check /tmp/webcam-magic-ngrok.log (wrong token, or that domain isn't reserved on this account?)"; fi
+  echo "     point the site once:  https://amsanghi.github.io/webcam-magic/?ai=https://${domain}&aimodel=active"
 }
 
 load_agents()   { for a in "${AGENTS[@]}"; do P="$HOME/Library/LaunchAgents/${a}.plist"; [ -f "$P" ] && launchctl load   "$P" 2>/dev/null || true; done; }
@@ -204,5 +215,6 @@ case "${1:-up}" in
   heavy)     model_switch heavy ;;
   light)     model_switch light ;;
   autostart) autostart ;;
-  *) echo "usage: ./wm.sh [ up [heavy|light] | down | status | heavy | light | autostart ]"; exit 1 ;;
+  tunnel)    configure_ngrok "${2:-}" "${3:-}" ;;
+  *) echo "usage: ./wm.sh [ up [heavy|light] | down | status | heavy | light | tunnel <domain> <token> | autostart ]"; exit 1 ;;
 esac

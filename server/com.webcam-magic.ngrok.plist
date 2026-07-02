@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- LaunchAgent: permanent ngrok tunnel to Ollama on your STATIC domain, so the
-     public https URL never changes. setup.sh substitutes __NGROK_DOMAIN__ and
-     installs this to ~/Library/LaunchAgents. Authtoken comes from
-     `ngrok config add-authtoken` (~/.config/ngrok/ngrok.yml). -->
+<!-- LaunchAgent: permanent ngrok tunnel to the proxy (:11435) on your STATIC domain,
+     so the public https URL never changes. setup.sh / wm.sh substitute __NGROK_DOMAIN__
+     and __NGROK_AUTHTOKEN__. The authtoken is passed PER-AGENT (--authtoken) rather than
+     via `ngrok config add-authtoken`, so this tunnel uses ITS OWN ngrok account and can
+     run alongside another ngrok tunnel (e.g. a second app) without clobbering the shared
+     config. (Host rewrite is handled by proxy.js, so no --host-header here.) -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.webcam-magic.ngrok</string>
@@ -14,7 +16,8 @@
     <string>11435</string>
     <string>--url</string>
     <string>https://__NGROK_DOMAIN__</string>
-    <string>--host-header=rewrite</string>
+    <string>--authtoken</string>
+    <string>__NGROK_AUTHTOKEN__</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

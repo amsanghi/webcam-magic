@@ -40,11 +40,12 @@ ollama rm active 2>/dev/null || true
 ollama cp dolphin-mixtral:8x7b active
 echo "▶ active → dolphin-mixtral:8x7b  (switch anytime: ./start.sh light | ./start.sh heavy)"
 
-# Permanent ngrok tunnel on YOUR static domain → the URL never changes.
-if [ -n "${NGROK_DOMAIN:-}" ]; then
-  [ -n "${NGROK_AUTHTOKEN:-}" ] && ngrok config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1 || true
+# Permanent ngrok tunnel on YOUR static domain → the URL never changes. The token is
+# baked into THIS agent (--authtoken in the plist), not the shared ngrok config, so it
+# can use its own ngrok account and coexist with any other ngrok tunnel you run.
+if [ -n "${NGROK_DOMAIN:-}" ] && [ -n "${NGROK_AUTHTOKEN:-}" ]; then
   NPLIST="$HOME/Library/LaunchAgents/com.webcam-magic.ngrok.plist"
-  sed "s|__NGROK_DOMAIN__|${NGROK_DOMAIN}|g" com.webcam-magic.ngrok.plist > "$NPLIST"
+  sed -e "s|__NGROK_DOMAIN__|${NGROK_DOMAIN}|g" -e "s|__NGROK_AUTHTOKEN__|${NGROK_AUTHTOKEN}|g" com.webcam-magic.ngrok.plist > "$NPLIST"
   launchctl unload "$NPLIST" 2>/dev/null || true; launchctl load "$NPLIST"
   echo
   echo "✅ Permanent tunnel: https://${NGROK_DOMAIN}"
@@ -52,9 +53,9 @@ if [ -n "${NGROK_DOMAIN:-}" ]; then
   echo "     https://amsanghi.github.io/webcam-magic/?ai=https://${NGROK_DOMAIN}&aimodel=active"
 else
   echo
-  echo "⚠ No NGROK_DOMAIN given — Ollama + models are ready, but the permanent tunnel isn't set."
-  echo "  Get a free static domain + authtoken at https://dashboard.ngrok.com, then re-run:"
-  echo "    NGROK_DOMAIN=you.ngrok-free.app NGROK_AUTHTOKEN=xxth ./setup.sh"
+  echo "⚠ No NGROK_DOMAIN + NGROK_AUTHTOKEN given — Ollama + models are ready, but the tunnel isn't set."
+  echo "  Grab a free static domain + authtoken at https://dashboard.ngrok.com (a SEPARATE ngrok account is"
+  echo "  fine if you already run another tunnel), then:  ./wm.sh tunnel <your-domain> <authtoken>"
 fi
 echo
 echo "✅ Done. Heavy when idle:  ./start.sh heavy    Light when using the Mac:  ./start.sh light"
