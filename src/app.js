@@ -860,11 +860,16 @@ function pushToast(text) {
   while (wrap.children.length > 3) wrap.removeChild(wrap.firstChild);
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 400); }, 6500);
 }
-{ // while tucked away, Cupid/partner messages surface over the video + badge up
-  const origSay = chat.say, origWhisper = chat.whisper;
+{ // while tucked away, Cupid/partner messages surface over the video + badge up;
+  // a mode ASKING for typed input pops the dock back open so the field is reachable
+  const origSay = chat.say, origWhisper = chat.whisper, origAsk = chat.ask;
   chat.say = (from, text) => { origSay(from, text); if (dockMin && playing && text && (from === "ai" || from === "partner")) { pushToast(text); unread++; reflectBadge(); } };
   chat.whisper = (text) => { origWhisper(text); if (dockMin && playing && text) { pushToast("🤫 " + text); unread++; reflectBadge(); } };
+  chat.ask = (label, opts) => { if (dockMin) setDockMin(false); return origAsk(label, opts); };
 }
+// landscape phones: start with Cupid tucked — the floating dock would cover half
+// the video. (Portrait keeps the dock: it fills the space under the 16:9 canvas.)
+if (matchMedia("(orientation: landscape) and (max-height: 520px)").matches) setDockMin(true);
 
 // ---- idle chrome: the top bar melts away so the two of you fill the screen ---
 let chromeT = 0;
