@@ -772,9 +772,10 @@ function showReady(mode) {
 function buildMenu() {
   const grid = $("menuGrid"); if (grid.dataset.built) return; grid.dataset.built = "1";
   for (const cat of CAT_ORDER) {
-    const title = document.createElement("div"); title.className = "cat-title"; title.textContent = cat; grid.appendChild(title);
+    const ci = CAT_ORDER.indexOf(cat);   // per-category hue accent (see [data-cat] in style.css)
+    const title = document.createElement("div"); title.className = "cat-title"; title.textContent = cat; title.dataset.cat = ci; grid.appendChild(title);
     for (const id in MODE_INFO) if (MODE_INFO[id].cat === cat) {
-      const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode";
+      const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode"; card.dataset.cat = ci;
       card.dataset.nm = (m.nm + " " + cat).toLowerCase();
       card.innerHTML = `<div class="ic">${modeIcon(id, cat)}</div><div class="nm">${m.nm}</div>`;
       card.onclick = () => navTo("ready", id);

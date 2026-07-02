@@ -4,7 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Webcam Magic — gesture & face party for two</title>
-<link rel="stylesheet" href="./style.css?v=8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..800;1,9..144,500..800&family=Outfit:wght@400..800&display=swap" />
+<link rel="stylesheet" href="./style.css?v=9" />
 <!-- redeploy nudge: force a fresh GitHub Pages build -->
 </head>
 <body>
@@ -20,9 +23,10 @@
 
   <!-- STEP 1 — connect ----------------------------------------------------->
   <section id="lobby" class="screen">
+    <div class="drift" aria-hidden="true"><i>💗</i><i>✦</i><i>💜</i><i>✦</i><i>🩷</i><i>✦</i></div>
     <div class="lobby-card">
       <div class="brand"><span class="brand-mark">✨</span><h1>Webcam Magic</h1></div>
-      <p class="sub">A two-person video call where your hands &amp; face cast little spells.<br>
+      <p class="sub">A video call that's a little bit enchanted — your hands &amp; faces cast the spells.<br>
         Runs entirely in your browser — no server, no recording, nothing leaves your devices.</p>
       <label class="field">
         <span>Secret room word <em>— you &amp; your partner type the same thing</em></span>
@@ -49,8 +53,8 @@
       <button class="chip icon-btn" id="tuneBtn" data-tip="Tuning" aria-label="Tuning"><i class="icon" data-ic="sliders"></i></button>
     </div>
     <div class="menuhead">
-      <h2>Pick something to do together</h2>
-      <p class="muted">Either of you can choose — your partner comes along automatically.</p>
+      <h2>What are we playing <em>tonight?</em></h2>
+      <p class="muted">Pick anything — your partner comes along automatically ✨</p>
     </div>
     <div class="menutools">
       <div class="search-wrap">
@@ -82,16 +86,22 @@
       <span class="pill status" id="connPill2">connected 💚</span>
       <span class="pill mode-pill" id="modePill"><span class="mp-icon" data-ic="sparkles"></span><span class="mp-name">Free</span></span>
       <span class="grow"></span>
-      <button class="chip clickable" id="aiPill2" data-tip="On-device AI — click to load"><i class="icon" data-ic="sparkles"></i><span class="lbl">AI</span></button>
-      <button class="chip clickable" id="directorBtn" data-tip="Let the AI host — proactive + auto-switch"><i class="icon" data-ic="crown"></i><span class="lbl">Host</span></button>
-      <button class="chip" id="menuBtn" data-tip="Back to menu"><i class="icon" data-ic="grid"></i><span class="lbl">Menu</span></button>
-      <button class="chip" id="sizeBtn" data-tip="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
-      <button class="chip icon-btn" id="enhanceBtn" data-tip="Video look: Natural" aria-label="Video enhancement"><i class="icon" data-ic="enhance"></i></button>
-      <button class="chip icon-btn" id="fxBtn" data-tip="Effects on" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
-      <button class="chip icon-btn" id="loveBtn2" data-tip="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
-      <button class="chip icon-btn" id="confettiBtn2" data-tip="Confetti" aria-label="Confetti"><i class="icon" data-ic="party"></i></button>
-      <button class="chip icon-btn" id="snapBtn" data-tip="Snapshot" aria-label="Snapshot"><i class="icon" data-ic="camera"></i></button>
-      <button class="chip icon-btn" id="eyeBtn" data-tip="Close eyes to snap (on)" aria-label="Eye-capture"><i class="icon" data-ic="eye"></i></button>
+      <div class="tb-group">
+        <button class="chip clickable" id="aiPill2" data-tip="On-device AI — click to load"><i class="icon" data-ic="sparkles"></i><span class="lbl">AI</span></button>
+        <button class="chip clickable" id="directorBtn" data-tip="Let Cupid host — proactive + auto-switch"><i class="icon" data-ic="crown"></i><span class="lbl">Host</span></button>
+      </div>
+      <div class="tb-group">
+        <button class="chip" id="menuBtn" data-tip="Back to menu"><i class="icon" data-ic="grid"></i><span class="lbl">Menu</span></button>
+        <button class="chip" id="sizeBtn" data-tip="Resize video"><i class="icon" data-ic="maximize"></i><span class="lbl">L</span></button>
+        <button class="chip icon-btn" id="enhanceBtn" data-tip="Video look: Natural" aria-label="Video enhancement"><i class="icon" data-ic="enhance"></i></button>
+        <button class="chip icon-btn" id="fxBtn" data-tip="Effects on" aria-label="Toggle effects"><i class="icon" data-ic="wand"></i></button>
+      </div>
+      <div class="tb-group">
+        <button class="chip icon-btn" id="loveBtn2" data-tip="Send a sweet nothing" aria-label="Send a sweet nothing"><i class="icon" data-ic="heartFill"></i></button>
+        <button class="chip icon-btn" id="confettiBtn2" data-tip="Confetti" aria-label="Confetti"><i class="icon" data-ic="party"></i></button>
+        <button class="chip icon-btn" id="snapBtn" data-tip="Snapshot" aria-label="Snapshot"><i class="icon" data-ic="camera"></i></button>
+        <button class="chip icon-btn" id="eyeBtn" data-tip="Close eyes to snap (on)" aria-label="Eye-capture"><i class="icon" data-ic="eye"></i></button>
+      </div>
       <button class="chip icon-btn danger" id="leaveBtn" data-tip="Leave" aria-label="Leave"><i class="icon" data-ic="x"></i></button>
     </div>
     <div id="playBody">
