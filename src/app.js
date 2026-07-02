@@ -5,6 +5,7 @@ import { HandLandmarker, FaceLandmarker, FilesetResolver }
 import * as FX from "./fx/effects.js";
 import * as G from "./perception/gestures.js";
 import { createGames, MODE_INFO, MODE_ACTIONS, CAT_ORDER } from "./modes/registry.js";
+import { setAiGameSpec } from "./modes/ai.js";
 import { createVoice } from "./perception/voice.js";
 import { createHost } from "./core/host.js";
 import { createDetectors } from "./core/detectors.js";
@@ -87,6 +88,9 @@ const aiToolsLocal = {
   ask: (q) => { if (host.chat && q) return host.chat.ask(String(q)); },
   // a fact worth keeping → straight into the couple's long-term memory
   remember: (t) => { if (t && host.memory) host.memory.note("note", String(t)); },
+  // 🎲 Cupid invents a game: stash + share the spec, then jump both screens into
+  // the generic runtime (modes/ai.js aiGameMode validates and referees it).
+  spawnGame: (spec) => { if (spec && typeof spec === "object") { setAiGameSpec(spec); net.send({ t: "aig", spec }); } navTo("play", "aigame"); },
   // 🤫 the whisper channel: a private line only ONE partner sees. `to` is the
   // absolute player index (0 = left/authority, 1 = right) — self-routing, so it
   // works no matter which device ran the action.
@@ -666,6 +670,7 @@ function route(data) {
   if (data.t === "chat") { host.chat.say(data.who, data.text); return; }
   if (data.t === "ai-act") { const fn = aiToolsLocal[data.a]; if (fn) try { fn(data.arg); } catch (_) {} return; }   // Cupid's move, mirrored to this screen
   if (data.t === "whisper") { host.chat.whisper(data.text); return; }                                               // a secret meant only for me
+  if (data.t === "aig" && data.spec) setAiGameSpec(data.spec);   // stash Cupid's game spec (falls through so an active aigame mode also applies it)
   if (typeof data.t === "string" && data.t.startsWith("share-") && games.mode !== "share") navTo("play", "share", true);
   games.onNet(data); handleFreeNet(data);
 }

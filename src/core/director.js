@@ -17,7 +17,7 @@ import { TOOL_DOC } from "./ai.js";
 const BY_ACT = {
   warmup: ["thisorthat", "wyr", "rps", "pop", "spinner"],
   connect: ["deeptalk", "telepathy", "aideep", "q36", "howwell", "twotruths"],
-  play: ["dancebattle", "charades", "pictionary", "catch", "photobooth", "trivia", "reaction"],
+  play: ["aigame", "dancebattle", "charades", "pictionary", "catch", "photobooth", "trivia", "reaction"],
   spice: ["truthdare", "loversdice", "neverhave", "roleplay", "aitruth"],
   winddown: ["oursong", "stars", "mood", "breathe", "slowdance", "kisscam"],
 };

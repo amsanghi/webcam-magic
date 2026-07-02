@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- smoke.html — headless mode smoke-test. Serve the repo (python3 -m http.server)
+     and open /smoke.html: it instantiates EVERY mode factory, runs a few
+     enter/update/draw ticks against a stubbed host, and lists the ones that
+     throw. No camera needed. Results also land on window.__SMOKE for tooling. -->
+<meta charset="utf-8"><title>webcam-magic mode smoke test</title>
+<style>body{background:#111;color:#eee;font:13px/1.5 monospace;padding:16px}pre{white-space:pre-wrap}</style>
+<canvas id="cv" width="1280" height="720" style="display:none"></canvas>
+<h3>mode smoke test</h3><pre id="out">running…</pre>
+<script type="module">
+import { createGames, MODE_INFO } from "./src/modes/registry.js";
+import { blankState } from "./src/perception/gestures.js";
+
+const ctx = document.getElementById("cv").getContext("2d");
+// minimal stand-ins for the host services + net that modes touch
+const host = {
+  snapshot() {}, snapMoment() {}, ask: async () => null,
+  voice: { supported: false, start() {}, stop() {} },
+  objects: { want: false, labels: [] }, pose: { want: false, lm: null },
+  seg: { want: false, grid: null, gw: 0, gh: 0, count: 0 },
+  audio: { level: 0, pitch: 0, want: false }, pointer: { x: 0, y: 0, t: 0 },
+  videoHue: () => -1, sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
+  requestSensors() {}, geo: async () => null, moments: [], memory: null,
+  chat: { say() {}, whisper() {}, ask: async () => null, actions() {}, thinking() {}, clear() {}, busy: false },
+  ai: { available: () => false, amGenerator: () => false, tier: 0, status: "idle", progress: 0, approxMB: 0,
+        ask: async (s, fb) => (fb ? fb() : ""), see: async (s, fb) => (fb ? fb() : ""), image: async () => null,
+        tts: async () => null, stt: async () => null, load: async () => false, canImage: false, canVoice: false,
+        runActions: () => null, onNet() {}, setTone() {}, setProfile() {} },
+  localVideo: null, remoteVideo: null, grabFrame: () => null,
+};
+const net = { send() {} };
+const games = createGames(net, host);
+games.setAuthority(true);
+
+const local = blankState(); local.present = true;
+const remote = blankState();
+const ids = Object.keys(MODE_INFO).filter((id) => id !== "free" && !id.startsWith("fx:"));
+const errors = [];
+for (const id of ids) {
+  try {
+    games.setMode(id);
+    for (let i = 0; i < 8; i++) games.update(0.05, local, remote);
+    games.draw(ctx);
+  } catch (e) {
+    errors.push({ id, err: String(e && e.message || e), at: (e && e.stack || "").split("\n")[1] || "" });
+  }
+}
+try { games.setMode("free"); } catch (_) {}
+window.__SMOKE = { total: ids.length, bad: errors.length, errors };
+document.getElementById("out").textContent =
+  `${ids.length - errors.length}/${ids.length} modes OK` +
+  (errors.length ? "\n\nFAILING:\n" + errors.map((e) => `  ${e.id}: ${e.err}\n    ${e.at.trim()}`).join("\n") : " 🎉");
+</script>
