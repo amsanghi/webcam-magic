@@ -67,20 +67,28 @@ export function loversDiceMode() {
 // ---------------- WOULD YOU RATHER (flirty, finger vote) -----------------
 export function wyrMode() {
   const Q = [["cozy night in 🛋️", "wild night out 🎉"], ["little spoon 🥄", "big spoon 🤗"], ["forehead kisses 😌", "neck kisses 🔥"], ["slow dance 💃", "pillow fight 🪶"], ["morning cuddles ☀️", "midnight talks 🌙"], ["lights on 💡", "lights off 🌙"], ["tease 😏", "be teased 🫠"], ["make the first move 😉", "be swept off your feet 🥰"]];
-  let q = Q[0], phase = "idle", t = 0, mine = 1, theirs = 1, res = "";
-  const start = (i) => { q = Q[i]; phase = "count"; t = 3; res = ""; };
+  let q = Q[0], phase = "idle", t = 0, a0 = 0, a1 = 0, res = "", picks = {};
+  const start = (i) => {
+    q = Q[i]; phase = "count"; t = 6; res = ""; picks = {};
+    // tap to vote (fingers still work as the fallback gesture)
+    host.choices(q, (k) => { if (authority) picks[0] = k + 1; else net.send({ t: "wyr-p", k: k + 1 }); });
+  };
+  const finish = (m) => { a0 = m.a0; a1 = m.a1; res = a0 === a1 ? "same taste 💕" : "opposites attract 😏"; if (a0 === a1) FX.flood(0, W, ["💕"], 26); phase = "done"; t = 4; host.choices(null); };
   return {
     action(a) { if (a === "go") { const i = Math.floor(Math.random() * Q.length); start(i); net.send({ t: "wyr", q: i }); } },
-    onNet(m) { if (m.t === "wyr") start(m.q); },
+    onNet(m) {
+      if (m.t === "wyr") start(m.q);
+      else if (m.t === "wyr-p" && authority) picks[1] = m.k;
+      else if (m.t === "wyr-res") finish(m);
+    },
     update(dt, local, remote) {
-      if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; res = mine === theirs ? "same taste 💕" : "opposites attract 😏"; if (mine === theirs) FX.flood(0, W, ["💕"], 26); phase = "done"; t = 3.5; } }
+      if (phase === "count") { t -= dt; if (authority && t <= 0) { const r = { a0: picks[0] || (local && local.fingers >= 2 ? 2 : 1), a1: picks[1] || (remote && remote.fingers >= 2 ? 2 : 1) }; net.send({ t: "wyr-res", ...r }); finish(r); } }
       else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
     },
     draw(ctx) {
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-      if (phase === "idle") big(ctx, "😏 Would You Rather", "press go — ☝️ 1 finger = left, ✌️ 2 = right");
-      else if (phase === "count") { ctx.font = "bold 32px system-ui"; ctx.fillText("1️⃣ " + q[0], W / 2, H * 0.4); ctx.fillText("2️⃣ " + q[1], W / 2, H * 0.52); ctx.font = "20px system-ui"; ctx.fillText("vote in… " + Math.ceil(t), W / 2, H * 0.64); }
-      else big(ctx, "you: " + (mine === 1 ? q[0] : q[1]), res);
+      if (phase === "idle") big(ctx, "😏 Would You Rather", "press go — then tap your pick (or ☝️/✌️ fingers)");
+      else if (phase === "count") { big(ctx, "😏 Would you rather…", `1️⃣ ${q[0]}\n2️⃣ ${q[1]}`); hint(ctx, `tap your answer · ${Math.ceil(Math.max(0, t))}`); }
+      else { const mine = meIdx() === 0 ? a0 : a1; big(ctx, "you: " + (mine === 1 ? q[0] : q[1]), res); }
     },
   };
 }
@@ -89,11 +97,21 @@ export function wyrMode() {
 // ---------------- NEVER HAVE I EVER (flirty confessions) -----------------
 export function neverMode() {
   const N = ["fantasized about our next date 😏", "fallen asleep on call with you 🥱💕", "re-read our old texts 📱", "stared at your photo too long 👀", "wanted to kiss you through the screen 💋", "had a dream about you 😴💕", "gotten butterflies from one text 🦋", "wanted to skip everything just to see you ✈️", "undressed you with my eyes 😳😏", "rehearsed what I'd do when I see you 🫠"];
-  let text = "";
+  const A = ["I have 😳", "I haven't 😇"];
+  let text = "", ans = [null, null];
+  const fresh = (t) => {
+    text = t; ans = [null, null];
+    host.choices(A, (k) => { reveal(meIdx(), k); net.send({ t: "nhie", w: meIdx(), k }); });
+  };
+  const reveal = (w, k) => { ans[w] = k; if (k === 0) FX.confetti(w === 0 ? W * 0.25 : W * 0.75, H * 0.35, 14); };
   return {
-    action(a) { if (a === "next") { host.ai.ask({ user: "Complete ONE spicy 'Never have I ever…' confession for a couple (just the part after 'ever').", max: 40, temp: 1.05 }, () => pick(N)).then((t) => { text = (t || "").trim() || pick(N); net.send({ t: "never", text }); FX.flood(0, W, ["🙈", "💕"], 12); if (host.chat) host.chat.say("ai", "🙈 " + text); }); } },
-    onNet(m) { if (m.t === "never") text = m.text; },
-    draw(ctx) { ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "24px system-ui"; ctx.textBaseline = "middle"; ctx.fillText("🙈 Never have I ever…", W / 2, H * 0.4); ctx.font = "bold 30px system-ui"; ctx.fillText(text || "press next", W / 2, H * 0.52); ctx.font = "17px system-ui"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.fillText("say 'I have' or 'I haven't' 😏", W / 2, H * 0.64); },
+    action(a) { if (a === "next") { host.ai.ask({ user: "Complete ONE spicy 'Never have I ever…' confession for a couple (just the part after 'ever').", max: 40, temp: 1.05 }, () => pick(N)).then((t) => { const line = (t || "").trim() || pick(N); fresh(line); net.send({ t: "never", text: line }); FX.flood(0, W, ["🙈", "💕"], 12); }); } },
+    onNet(m) { if (m.t === "never") fresh(m.text); else if (m.t === "nhie") reveal(m.w, m.k); },
+    draw(ctx) {
+      big(ctx, "🙈 Never have I ever…", text || "press next");
+      const lbl = (k) => (k == null ? "…" : A[k]);
+      hint(ctx, text ? `you: ${lbl(ans[meIdx()])}  ·  partner: ${lbl(ans[1 - meIdx()])}` : "tap next for a confession — then answer honestly 😏");
+    },
   };
 }
 

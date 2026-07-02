@@ -241,8 +241,13 @@ export function noteMode() {
     update(dt) { const p = host.audio.pitch, target = NOTES[ni][1]; if (p > 60 && p < 1200) { let d = p; while (d > target * 1.4) d /= 2; while (d < target * 0.7) d *= 2; cents = 1200 * Math.log2(d / target); if (Math.abs(cents) < 60) { hold += dt; if (hold > 1.4) { score++; FX.flood(0, W, ["🎵", "✨"], 20); FX.Sound.chime(); nr(); } } else hold = Math.max(0, hold - dt); } else { cents = 999; hold = Math.max(0, hold - dt); } },
     draw(ctx) {
       big(ctx, "🎵 Hum:  " + NOTES[ni][0], host.audio.level < 0.03 ? "hum into your mic…" : (Math.abs(cents) < 60 ? "hold it… 🎯" : (cents > 0 ? "a little lower ⬇️" : "a little higher ⬆️")));
-      const bx = W / 2, by = H * 0.66, w = 300; ctx.save(); ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(bx - w / 2, by, w, 12); const px = clamp(bx + (cents === 999 ? 0 : cents / 100 * w / 2), bx - w / 2, bx + w / 2); ctx.fillStyle = Math.abs(cents) < 60 ? "#7cff9d" : "#ffd24b"; ctx.fillRect(px - 5, by - 4, 10, 20); ctx.restore();
-      pill(ctx, "matched: " + score + "  🎵", W / 2, 30, 15);
+      hint(ctx, "matched: " + score + "  🎵");
+      // your pitch meter lives in YOUR half (rounded glass, not floating text)
+      const bx = meIdx() === 0 ? W * 0.25 : W * 0.75, by = H * 0.66, w = 300;
+      ctx.save(); ctx.fillStyle = "rgba(10,12,20,.55)"; roundRect(ctx, bx - w / 2 - 8, by - 10, w + 16, 32, 16); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.fillRect(bx - w / 2, by + 2, w, 8);
+      const px = clamp(bx + (cents === 999 ? 0 : cents / 100 * w / 2), bx - w / 2, bx + w / 2);
+      ctx.fillStyle = Math.abs(cents) < 60 ? "#7cff9d" : "#ffd24b"; ctx.fillRect(px - 5, by - 4, 10, 20); ctx.restore();
     },
   };
 }
@@ -259,7 +264,12 @@ export function screamMode() {
     draw(ctx) {
       scoreboard(ctx, [Math.round((meIdx() === 0 ? my : their) * 100), Math.round((meIdx() === 0 ? their : my) * 100)], phase === "race" ? t : null, "Scream Meter 📣");
       if (phase === "idle") big(ctx, "📣 Scream Meter", "press “go” then CHEER as loud as you can!");
-      else if (phase === "race") { big(ctx, "SCREAM! 📣", "louder!!!"); ctx.fillStyle = "#ff5c8a"; ctx.fillRect(W / 2 - 150, H * 0.72, 300 * host.audio.level, 16); }
+      else if (phase === "race") {
+        big(ctx, "SCREAM! 📣", "louder!!!");
+        const bx = (meIdx() === 0 ? W * 0.25 : W * 0.75) - 150;   // your loudness bar, in your half
+        ctx.save(); ctx.fillStyle = "rgba(10,12,20,.55)"; roundRect(ctx, bx - 8, H * 0.72 - 8, 316, 32, 16); ctx.fill();
+        ctx.fillStyle = "#ff5c8a"; ctx.fillRect(bx, H * 0.72, 300 * host.audio.level, 16); ctx.restore();
+      }
       else big(ctx, my > their ? "You're louder! 🏆" : my < their ? "Partner won 📣" : "tie!", "");
     },
   };
@@ -282,9 +292,9 @@ export function typingMode() {
       scoreboard(ctx, score, null, "Typing Race ⌨️");
       if (phase === "idle") return big(ctx, "⌨️ Typing Race", "press “go”, then type the phrase fastest");
       if (winner >= 0) return big(ctx, winner === meIdx() ? "You won! ⌨️🎉" : "Partner won ⌨️", phrase);
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff"; outline(ctx, phrase, W / 2, H * 0.42, 28);
-      const ok = phrase.startsWith(typed); ctx.font = "24px system-ui"; ctx.fillStyle = ok ? "#8dffb0" : "#ff8a8a"; ctx.textBaseline = "middle"; ctx.fillText(typed + "▌", W / 2, H * 0.54);
-      hint(ctx, "just type — no need to click a box");
+      const ok = phrase.startsWith(typed);
+      big(ctx, phrase, (typed || " ") + "▌");
+      hint(ctx, ok ? "just type — no need to click a box" : "typo — backspace ⌫");
     },
   };
 }

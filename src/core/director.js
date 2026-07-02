@@ -16,10 +16,10 @@ import { TOOL_DOC } from "./ai.js";
 // out by has(); every act keeps a couple of always-present ids so it's never empty.
 const BY_ACT = {
   warmup: ["thisorthat", "wyr", "rps", "pop", "spinner"],
-  connect: ["deeptalk", "telepathy", "aideep", "q36", "howwell", "twotruths"],
+  connect: ["deeptalk", "telepathy", "q36", "howwell", "twotruths", "whomore"],
   play: ["aigame", "dancebattle", "charades", "pictionary", "catch", "photobooth", "trivia", "reaction"],
-  spice: ["truthdare", "loversdice", "neverhave", "roleplay", "aitruth"],
-  winddown: ["oursong", "stars", "mood", "breathe", "slowdance", "kisscam"],
+  spice: ["truthdare", "loversdice", "never", "roleplay", "dareroulette"],
+  winddown: ["oursong", "stars", "mood", "breathing", "slowdance", "kisscam"],
 };
 const SAFE = ["kisscam", "dancebattle", "truthdare", "rps", "pop", "catch", "deeptalk", "telepathy", "thisorthat", "spinner", "wyr", "photobooth", "charades", "pictionary", "loversdice"];
 

@@ -113,21 +113,28 @@ export function howWellMode() {
 // ⚖️ WHO'S MORE LIKELY — both vote ☝️you / ✌️me
 export function whoMoreMode() {
   const Q = ["to text first 📱", "to cry at a movie 😭", "to burn dinner 🔥", "to fall asleep first 😴", "to plan the trip ✈️", "to win an argument 😤", "to forget an anniversary 🙈", "to say “I love you” more 💕", "to be late ⏰", "to start a food fight 🍝", "to send memes at 2am 😂", "to give the better massage 💆"];
-  let q = "", phase = "idle", t = 0, mine = 0, theirs = 0;
-  const start = (x) => { q = x; phase = "count"; t = 4; mine = 0; theirs = 0; };
+  let q = "", phase = "idle", t = 0, a0 = 0, a1 = 0, picks = {};
+  const start = (x) => {
+    q = x; phase = "count"; t = 6; picks = {};
+    host.choices(["Me 🙋", "You 😌"], (k) => { if (authority) picks[0] = k + 1; else net.send({ t: "wm-p", k: k + 1 }); });
+  };
+  const finish = (m) => { a0 = m.a0; a1 = m.a1; phase = "done"; t = 4; host.choices(null); };
   return {
-    onNet(m) { if (m.t === "wm") start(m.q); },
+    onNet(m) {
+      if (m.t === "wm") start(m.q);
+      else if (m.t === "wm-p" && authority) picks[1] = m.k;
+      else if (m.t === "wm-res") finish(m);
+    },
     action(a) { if (a === "go") { host.ai.ask({ system: "Complete 'Who's more likely…' with ONE short playful or flirty ending only, e.g. 'to text first 📱'. Return just the ending.", user: "one 'who's more likely' ending for a couple", max: 18, temp: 1.1 }, () => pick(Q)).then((x) => { x = (x || "").trim() || pick(Q); start(x); net.send({ t: "wm", q: x }); }); } },
     update(dt, local, remote) {
-      if (!authority) return;
-      if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; phase = "done"; t = 4; } }
+      if (phase === "count") { t -= dt; if (authority && t <= 0) { const r = { a0: picks[0] || (local && local.fingers >= 2 ? 2 : 1), a1: picks[1] || (remote && remote.fingers >= 2 ? 2 : 1) }; net.send({ t: "wm-res", ...r }); finish(r); } }
       else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
     },
     draw(ctx) {
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-      if (phase === "idle") return big(ctx, "⚖️ Who's More Likely…", "press “go” • vote ☝️ you / ✌️ me");
-      if (phase === "count") return big(ctx, "Who's more likely " + q, "vote ☝️ you / ✌️ me • " + Math.ceil(t));
-      const agree = mine !== theirs ? "you agree! 😄" : "you disagree — debate! 😆";  // opposite finger picks = same person
+      if (phase === "idle") return big(ctx, "⚖️ Who's More Likely…", "press “go” — then tap Me or You");
+      if (phase === "count") { big(ctx, "Who's more likely " + q, "tap: Me 🙋 or You 😌"); return hint(ctx, `☝️ me / ✌️ you fingers work too · ${Math.ceil(Math.max(0, t))}`); }
+      // "Me" on one screen is "You" on the other → same pick index = they disagree
+      const agree = a0 !== a1 ? "you agree! 😄" : "you disagree — debate! 😆";
       big(ctx, "Who's more likely " + q, agree);
     },
   };
@@ -137,21 +144,27 @@ export function whoMoreMode() {
 // 🔀 THIS OR THAT — quick preference match (☝️ / ✌️)
 export function thisOrThatMode() {
   const P = [["☕ coffee", "🍵 tea"], ["🌊 beach", "⛰️ mountains"], ["🐶 dogs", "🐱 cats"], ["🌅 early bird", "🦉 night owl"], ["🍕 pizza", "🌮 tacos"], ["🎬 movie in", "🍸 night out"], ["📱 text", "📞 call"], ["🍫 sweet", "🧂 salty"], ["🏖️ summer", "❄️ winter"], ["🎧 music", "🎙️ podcasts"]];
-  let p = null, phase = "idle", t = 0, mine = 0, theirs = 0, streak = 0;
-  const start = (x) => { p = x; phase = "count"; t = 3; mine = 0; theirs = 0; };
+  let p = null, phase = "idle", t = 0, a0 = 0, a1 = 0, streak = 0, picks = {};
+  const start = (x) => {
+    p = x; phase = "count"; t = 5; picks = {};
+    host.choices(x, (k) => { if (authority) picks[0] = k + 1; else net.send({ t: "tot-p", k: k + 1 }); });
+  };
+  const finish = (m) => { a0 = m.a0; a1 = m.a1; streak = m.st; if (a0 === a1) FX.flood(0, W, ["💕"], 18); phase = "done"; t = 3; host.choices(null); };
   return {
-    onNet(m) { if (m.t === "tot") { p = m.p; start(m.p); } },
+    onNet(m) {
+      if (m.t === "tot") start(m.p);
+      else if (m.t === "tot-p" && authority) picks[1] = m.k;
+      else if (m.t === "tot-res") finish(m);
+    },
     action(a) { if (a === "go") { host.ai.ask({ system: "Give ONE fun 'this or that' pair for a couple as two short options separated by ' vs ', e.g. '☕ coffee vs 🍵 tea'. Return just the two options.", user: "one pair", max: 16, temp: 1.1 }, () => P[Math.floor(Math.random() * P.length)].join(" vs ")).then((r) => { let pr = String(r).split(/\s+vs\s+/i).map((s) => s.trim()).filter(Boolean); if (pr.length !== 2) pr = P[Math.floor(Math.random() * P.length)]; start(pr); net.send({ t: "tot", p: pr }); }); } },
     update(dt, local, remote) {
-      if (!authority) return;
-      if (phase === "count") { t -= dt; if (t <= 0) { mine = local && local.fingers >= 2 ? 2 : 1; theirs = remote && remote.fingers >= 2 ? 2 : 1; if (mine === theirs) streak++; else streak = 0; phase = "done"; t = 3; } }
+      if (phase === "count") { t -= dt; if (authority && t <= 0) { const r = { a0: picks[0] || (local && local.fingers >= 2 ? 2 : 1), a1: picks[1] || (remote && remote.fingers >= 2 ? 2 : 1), st: 0 }; r.st = r.a0 === r.a1 ? streak + 1 : 0; net.send({ t: "tot-res", ...r }); finish(r); } }
       else if (phase === "done") { t -= dt; if (t <= 0) phase = "idle"; }
     },
     draw(ctx) {
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-      if (!p) return big(ctx, "🔀 This or That", "press “go” • ☝️ left / ✌️ right");
-      if (phase === "count") return big(ctx, `☝️ ${p[0]}  vs  ✌️ ${p[1]}`, "pick! • " + Math.ceil(t));
-      const match = mine === theirs;
+      if (!p) return big(ctx, "🔀 This or That", "press “go” — then just tap your pick");
+      if (phase === "count") { big(ctx, `${p[0]}  vs  ${p[1]}`, "tap your pick!"); return hint(ctx, `☝️/✌️ fingers work too · ${Math.ceil(Math.max(0, t))}`); }
+      const mine = meIdx() === 0 ? a0 : a1, match = a0 === a1;
       big(ctx, match ? "match! 💕" : "opposites 😜", `you: ${mine === 1 ? p[0] : p[1]} • match streak ${streak}`);
     },
   };

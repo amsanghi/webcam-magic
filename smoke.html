@@ -20,7 +20,7 @@ const host = {
   seg: { want: false, grid: null, gw: 0, gh: 0, count: 0 },
   audio: { level: 0, pitch: 0, want: false }, pointer: { x: 0, y: 0, t: 0 },
   videoHue: () => -1, sensors: { on: false, beta: 0, gamma: 0, shake: 0 },
-  requestSensors() {}, geo: async () => null, moments: [], memory: null,
+  requestSensors() {}, geo: async () => null, moments: [], memory: null, choices() {},
   chat: { say() {}, whisper() {}, ask: async () => null, actions() {}, thinking() {}, clear() {}, busy: false },
   ai: { available: () => false, amGenerator: () => false, tier: 0, status: "idle", progress: 0, approxMB: 0,
         ask: async (s, fb) => (fb ? fb() : ""), see: async (s, fb) => (fb ? fb() : ""), image: async () => null,

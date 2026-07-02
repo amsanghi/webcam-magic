@@ -393,6 +393,19 @@ button .icon { width: 1.05em; height: 1.05em; }
   #play.stacked #playBody { justify-content: initial; }
 }
 
+/* the play screen never scrolls — chrome stays pinned (fixes the drifting bar) */
+#play { overflow: hidden; }
+
+/* tappable answers (host.choices) — floating pills between video and caption */
+#choiceBar { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; flex: none; z-index: 5; }
+#choiceBar button { background: rgba(20, 15, 40, 0.78); backdrop-filter: blur(14px); border: 1px solid rgba(155, 107, 255, 0.5); color: #efeaff; border-radius: 999px; padding: 11px 20px; font-size: 14.5px; font-weight: 650; box-shadow: var(--shadow-sm); }
+#choiceBar button:hover { background: rgba(155, 107, 255, 0.3); transform: translateY(-1px); }
+#choiceBar button.picked { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 8px 22px -8px rgba(255, 92, 138, 0.8); }
+
+/* "⋯ more" popover for the niche top-bar controls */
+.tb-more { position: relative; }
+#morePop { position: absolute; top: calc(100% + 8px); right: 0; display: flex; gap: 6px; padding: 8px; background: var(--panel-solid); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--shadow); z-index: 30; }
+
 /* touch ergonomics: kill double-tap zoom, fatten targets on touch screens */
 button, input, .chip, .pill, .card-mode, .deck-card, .chip-action { touch-action: manipulation; }
 @media (pointer: coarse) {
@@ -433,7 +446,9 @@ button, input, .chip, .pill, .card-mode, .deck-card, .chip-action { touch-action
   .sb-name { font-size: 9px; }
   .sb-title { font-size: 13px; }
   #actionbar { margin-top: auto; }
-  #actionbar.hidden ~ #modeCaption { margin-top: auto; }
+  #actionbar.hidden ~ #choiceBar { margin-top: auto; }
+  #actionbar.hidden ~ #choiceBar.hidden ~ #modeCaption { margin-top: auto; }
+  #choiceBar { position: relative; z-index: 1; }
   #actionbar button { padding: 7px 13px; font-size: 12px; }
   #modeCaption { padding: 7px 14px; max-height: 36vh; background: rgba(18, 14, 34, 0.7); }
   .cap-title { font-size: 15px; }

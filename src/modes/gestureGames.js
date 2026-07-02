@@ -143,7 +143,14 @@ export function rhythmMode() {
       [[local, 0], [remote, 1]].forEach(([g, s]) => { const c = g && g.two && g.two.clap; if (c && !prev[s]) { if (inWin && !hit[s]) { score[s]++; hit[s] = true; FX.sparkleAt(s === 0 ? W * .25 : W * .75, H * .5, 8); FX.Sound.pop(); } } prev[s] = c; });
       bc += dt; if (bc > .1) { bc = 0; net.send({ t: "ry", s: score, sc: +since.toFixed(2) }); }
     },
-    draw(ctx) { const ph = since % period, pulse = ph < 0.28; ctx.save(); ctx.translate(W / 2, H / 2); ctx.fillStyle = pulse ? "rgba(124,255,157,.5)" : "rgba(255,255,255,.14)"; ctx.beginPath(); ctx.arc(0, 0, pulse ? 92 : 60, 0, 7); ctx.fill(); ctx.restore(); scoreboard(ctx, score, null, "Rhythm — 👏 clap when the circle pulses"); },
+    draw(ctx) {
+      const ph = since % period, pulse = ph < 0.28;
+      for (const cx of [W * 0.25, W * 0.75]) {   // one pulse ring per player, never on the seam
+        ctx.save(); ctx.translate(cx, H / 2); ctx.fillStyle = pulse ? "rgba(124,255,157,.5)" : "rgba(255,255,255,.14)";
+        ctx.beginPath(); ctx.arc(0, 0, pulse ? 80 : 52, 0, 7); ctx.fill(); ctx.restore();
+      }
+      scoreboard(ctx, score, null, "Rhythm — 👏 clap when the circles pulse");
+    },
   };
 }
 
