@@ -28,7 +28,8 @@ partner opens the same link, types the same word, and you're connected. Invite w
 `https://…/?room=yourword`.
 
 There is **no build step.** The app is plain ES modules loaded directly by the browser; editing
-a file and refreshing is the whole dev loop.
+a file and refreshing is the whole dev loop. Open `/smoke.html` on the local server to run every
+mode factory headlessly (no camera) and list any that throw.
 
 ## Deploy (GitHub Pages)
 
@@ -81,9 +82,10 @@ Menu sections, in order (`CAT_ORDER` in `src/modes/registry.js`):
 - **New senses 🎙️** — Say It First, Decipher, Treasure Hunt, Distance, Tilt Maze, Shake Race,
   Pose Party, Hole in the Wall, Mouth Flappy, Color Hunt, Match the Note, Scream Meter, Typing
   Race, Tap Attack.
-- **AI ✨** — Cupid (AI companion), AI Game Master (drives the app), AI Adventure, Mad Libs, and
-  generative Truth-or-Dare / Would-You-Rather / Deep Talk / Date Ideas / Pet Names / Roast & Toast.
-  See "On-device AI" below.
+- **AI ✨** — Cupid (AI companion), **Cupid's Game** (the AI invents a brand-new gesture mini-game
+  on the spot — with a forfeit for the loser), AI Game Master (drives the app), AI Adventure, Mad
+  Libs, and generative Truth-or-Dare / Would-You-Rather / Deep Talk / Date Ideas / Pet Names /
+  Roast & Toast. See "On-device AI" below.
 - **Couple** — Kiss Cam, Name Mash, Love Calc, Date Spinner, Pictionary, Mailbox, Bucket List,
   Dress-Up, Make a Wish, Hands Up, Love Tap.
 - **Talk & connect 💬** — 36 Questions, Deep Talk, 20 Questions, Two Truths, Story Builder,

@@ -129,10 +129,10 @@ export function poseMode() {
     exit() { host.pose.want = false; },
     onNet(m) { if (m.t === "pp") { pi = m.i; score = m.s; winner = m.w; claimed = m.w >= 0; } else if (m.t === "pp-hit" && authority) declare(1); },
     update(dt) {
-      const lm = host.pose.lm; if (winner < 0 && !claimed && lm.length >= 29) { try { if (POSES[pi][1](lm)) { claimed = true; if (authority) declare(0); else net.send({ t: "pp-hit" }); } } catch (_) {} }
+      const lm = host.pose.lm; if (winner < 0 && !claimed && lm && lm.length >= 29) { try { if (POSES[pi][1](lm)) { claimed = true; if (authority) declare(0); else net.send({ t: "pp-hit" }); } } catch (_) {} }
       if (authority && winner < 0) { t -= dt; if (t <= 0) nr(); } else if (authority && winner >= 0) { t -= dt; if (t < -2) nr(); }
     },
-    draw(ctx) { scoreboard(ctx, score, null, "Pose Party 🧍"); if (!host.pose.lm.length) big(ctx, "🧍 Pose Party", "loading body tracking… step back so you're in frame"); else big(ctx, "Strike: " + POSES[pi][0], winner < 0 ? "first to match wins!" : (winner === meIdx() ? "you nailed it! 🎉" : "partner got it")); },
+    draw(ctx) { scoreboard(ctx, score, null, "Pose Party 🧍"); if (!host.pose.lm || !host.pose.lm.length) big(ctx, "🧍 Pose Party", "loading body tracking… step back so you're in frame"); else big(ctx, "Strike: " + POSES[pi][0], winner < 0 ? "first to match wins!" : (winner === meIdx() ? "you nailed it! 🎉" : "partner got it")); },
   };
 }
 
