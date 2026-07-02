@@ -137,6 +137,14 @@ start_sd() {
   ( cd "$dir" && nohup bash ./webui.sh ${SD_CMD:---api --listen --port ${SD_PORT}} >"$SD_LOG" 2>&1 & )
 }
 stop_sd() { pkill -f "webui.sh" 2>/dev/null || true; pkill -f "launch.py" 2>/dev/null || true; }
+# Apply SD.Next memory-saving settings (VAE slicing+tiling + max attention slicing;
+# precision stays Auto = MPS-safe fp16). Persists in SD.Next's own config. SD must be up.
+configure_sd_mem() {
+  curl -sf --max-time 15 -X POST "http://127.0.0.1:${SD_PORT}/sdapi/v1/options" -H 'content-type: application/json' \
+    -d '{"diffusers_vae_slicing":true,"diffusers_vae_tiling":true,"attention_slicing":"Max"}' >/dev/null 2>&1 \
+    && echo "  ✅ SD memory settings applied (VAE slicing+tiling + attention slicing)" \
+    || echo "  ⚠ SD not reachable on :${SD_PORT} — start it first (./wm.sh sd), then ./wm.sh sd-tune"
+}
 
 model_switch() {   # heavy|light via the "active" alias (site always requests "active")
   local which="$1" active other
@@ -247,6 +255,7 @@ case "${1:-up}" in
   light)      model_switch light ;;
   autostart)  autostart ;;
   sd)         start_sd ;;
+  sd-tune)    configure_sd_mem ;;
   tunnel)     configure_ngrok "${2:-${NGROK_DOMAIN:-}}" "${3:-${NGROK_AUTHTOKEN:-}}" ;;
-  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | sd | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
+  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | sd | sd-tune | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
 esac
