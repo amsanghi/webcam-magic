@@ -91,10 +91,8 @@ export function adventureMode() {
     },
     onNet(m) { if (m.t === "adv") story = m.s; },
     draw(ctx) {
-      ctx.save(); ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-      story.slice(-3).forEach((l, i) => { ctx.font = "19px system-ui"; ctx.fillStyle = i === story.slice(-3).length - 1 ? "#fff" : "rgba(255,255,255,.6)"; wrapText(ctx, l, W / 2, 150 + i * 110, W * 0.82, 26); });
-      ctx.restore();
-      if (busy) big(ctx, "", "✨ weaving…"); hint(ctx, aiHint());
+      big(ctx, busy ? "✨ weaving…" : "🗺 Adventure", story.slice(-3).join("\n\n"));
+      hint(ctx, aiHint());
     },
   };
 }
@@ -115,7 +113,7 @@ export function madLibsMode() {
       }
     },
     onNet(m) { if (m.t === "madlib") text = m.x; },
-    draw(ctx) { ctx.save(); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; wrapText(ctx, busy ? "✨ writing…" : text, W / 2, H * 0.4, W * 0.82, 30); ctx.restore(); hint(ctx, aiHint()); },
+    draw(ctx) { big(ctx, "🤪 Mad Libs", busy ? "✨ writing…" : text); hint(ctx, aiHint()); },
   };
 }
 
@@ -290,9 +288,6 @@ export const modes = {
   gamemaster: { cat: "AI ✨", ic: "🎬", nm: "AI Game Master", how: ["The AI runs your night — it picks games, sets the mood, and fires effects", "Press go and let it surprise you both"], actions: [["go", "🎬 go"], ["load", "⬇ AI"]], make: gameMasterMode },
   adventure:  { cat: "AI ✨", ic: "🗺️", nm: "AI Adventure", how: ["A romantic choose-your-story, generated live", "‘begin’ then ‘next’ to keep the tale going together"], actions: [["begin", "▶ begin"], ["next", "➡ next"], ["load", "⬇ AI"]], make: adventureMode },
   madlibs:    { cat: "AI ✨", ic: "🤪", nm: "Mad Libs (AI)", how: ["Give three silly words", "The AI spins them into a goofy little story about you two"], actions: [["words", "✍️ words"], ["load", "⬇ AI"]], make: madLibsMode },
-  aitruth:    { cat: "AI ✨", ic: "😈", nm: "AI Truth or Dare", how: ["Endless fresh flirty truths & dares", "Never repeats — generated on-device"], actions: [["go", "😈 go"], ["load", "⬇ AI"]], make: () => lineMode({ id: "aitruth", ic: "😈", title: "AI Truth or Dare", deck: TRUTH_FB, fx: ["🔥", "💋"], temp: 1.0, sys: "Write ONE short flirty truth question OR a cute dare for a couple on a video call. Playful, suggestive is fine, never explicit. Emoji ok.", user: () => (Math.random() < 0.5 ? "Give a flirty truth question." : "Give a cute flirty dare.") }) },
-  aiwyr:      { cat: "AI ✨", ic: "😏", nm: "AI Would You Rather", how: ["Fresh flirty this-or-that every time"], actions: [["go", "😏 go"], ["load", "⬇ AI"]], make: () => lineMode({ id: "aiwyr", ic: "😏", title: "Would You Rather", deck: WYR_FB, temp: 1.0, sys: "Write ONE playful, flirty 'Would you rather' for a couple. Two options, never explicit. Emoji ok.", user: () => "Give a flirty would-you-rather." }) },
-  aideep:     { cat: "AI ✨", ic: "💬", nm: "AI Deep Talk", how: ["Gentle, meaningful prompts to go deeper", "Great for a slow night in"], actions: [["go", "💬 next"], ["load", "⬇ AI"]], make: () => lineMode({ id: "aideep", ic: "💬", title: "Deep Talk", deck: DEEP_FB, temp: 0.9, sys: "Write ONE warm, meaningful connection question for a committed long-distance couple. Sincere, not cheesy.", user: () => "Give a deep connection question." }) },
   aidate:     { cat: "AI ✨", ic: "🗓️", nm: "AI Date Ideas", how: ["Long-distance date-night ideas, generated fresh", "Ask again for more"], actions: [["go", "🗓️ idea"], ["load", "⬇ AI"]], make: () => lineMode({ id: "aidate", ic: "🗓️", title: "Date Idea", deck: DATE_FB, temp: 1.0, sys: "Suggest ONE creative LONG-DISTANCE date idea a couple can do together over video tonight. One sentence, doable, cute.", user: () => "Give a long-distance date idea." }) },
   petname:    { cat: "AI ✨", ic: "🏷️", nm: "AI Pet Names", how: ["Generate a fresh couple nickname", "Keep the ones you love"], actions: [["go", "🏷️ name"], ["load", "⬇ AI"]], make: () => lineMode({ id: "petname", ic: "🏷️", title: "Pet Name", deck: PET_FB, temp: 1.1, sys: "Invent ONE cute, original pet-name / nickname for someone's partner. Just the name, playful, emoji ok.", user: () => "Give a cute pet name." }) },
   roast:      { cat: "AI ✨", ic: "🔥", nm: "AI Roast & Toast", how: ["A loving little roast (that's secretly a compliment)", "All in good fun 😤"], actions: [["go", "🔥 roast"], ["load", "⬇ AI"]], make: () => lineMode({ id: "roast", ic: "🔥", title: "Roast & Toast", deck: ROAST_FB, temp: 1.1, sys: "Write ONE affectionate teasing 'roast' of someone's partner that lands as a compliment. Playful, warm, never mean or explicit.", user: () => "Roast my partner lovingly." }) },

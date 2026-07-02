@@ -329,23 +329,26 @@ export function memoryMode() {
 // 🧩 TRIVIA — both answer with fingers (1/2/3)
 export function triviaMode() {
   const Q = [{ q: "How many hearts does an octopus have?", o: ["1", "2", "3"], a: 2 }, { q: "Tallest animal?", o: ["Elephant", "Giraffe", "Horse"], a: 1 }, { q: "The Red Planet?", o: ["Venus", "Mars", "Jupiter"], a: 1 }, { q: "Strings on a guitar?", o: ["4", "6", "8"], a: 1 }, { q: "Largest ocean?", o: ["Atlantic", "Indian", "Pacific"], a: 2 }, { q: "Which is a fruit?", o: ["Tomato", "Carrot", "Onion"], a: 0 }, { q: "Fastest land animal?", o: ["Cheetah", "Lion", "Horse"], a: 0 }, { q: "Colors in a rainbow?", o: ["5", "6", "7"], a: 2 }, { q: "Freezing point of water °C?", o: ["0", "10", "32"], a: 0 }, { q: "How many continents?", o: ["5", "7", "9"], a: 1 }];
-  let cur = null, phase = "idle", t = 0, score = [0, 0], mine = -1, theirs = -1;
-  const start = (c) => { cur = c; phase = "count"; t = 5; mine = -1; theirs = -1; };
+  let cur = null, phase = "idle", t = 0, score = [0, 0], mine = -1, theirs = -1, picks = {};
+  const start = (c) => {
+    cur = c; phase = "count"; t = 8; mine = -1; theirs = -1; picks = {};
+    host.choices(c.o, (k) => { if (authority) picks[0] = k; else net.send({ t: "trv-p", k }); });
+  };
   const parseQ = (raw) => { try { const s = raw.indexOf("{"), e = raw.lastIndexOf("}"); const o = JSON.parse(raw.slice(s, e + 1)); if (o && o.q && Array.isArray(o.o) && o.o.length === 3 && o.a >= 0 && o.a <= 2) return { q: o.q, o: o.o.map(String), a: o.a }; } catch (_) {} return null; };
   return {
     action(a) { if (a === "go") { host.ai.ask({ system: "Write ONE fun general-knowledge trivia question as JSON ONLY: {\"q\":\"…\",\"o\":[\"A\",\"B\",\"C\"],\"a\":INDEX} where INDEX is 0, 1 or 2 for the correct option. Concise.", user: "one trivia question", max: 90, temp: 1.0 }, () => JSON.stringify(pick(Q))).then((raw) => { const c = parseQ(raw) || pick(Q); start(c); net.send({ t: "trv-go", c }); }); } },
-    onNet(m) { if (m.t === "trv-go") start(m.c); else if (m.t === "trv") { phase = m.p; score = m.s; mine = m.mn ?? mine; theirs = m.th ?? theirs; } },
+    onNet(m) { if (m.t === "trv-go") start(m.c); else if (m.t === "trv-p" && authority) picks[1] = m.k; else if (m.t === "trv") { phase = m.p; score = m.s; mine = m.mn ?? mine; theirs = m.th ?? theirs; if (phase !== "count") host.choices(null); } },
     update(dt, local, remote) {
-      if (!authority || !cur) return;
-      if (phase === "count") { t -= dt; if (t <= 0) { const fp = (g) => g && g.fingers ? Math.min(3, g.fingers) - 1 : -1; mine = fp(local); theirs = fp(remote); if (mine === cur.a) score[0]++; if (theirs === cur.a) score[1]++; phase = "reveal"; t = 4; net.send({ t: "trv", p: phase, s: score, mn: mine, th: theirs }); } }
-      else if (phase === "reveal") { t -= dt; if (t <= 0) { phase = "idle"; net.send({ t: "trv", p: phase, s: score }); } }
+      if (!cur) return;
+      if (phase === "count") { t -= dt; if (authority && t <= 0) { const fp = (g) => g && g.fingers ? Math.min(3, g.fingers) - 1 : -1; mine = picks[0] ?? fp(local); theirs = picks[1] ?? fp(remote); if (mine === cur.a) score[0]++; if (theirs === cur.a) score[1]++; phase = "reveal"; t = 4; host.choices(null); net.send({ t: "trv", p: phase, s: score, mn: mine, th: theirs }); } }
+      else if (phase === "reveal") { t -= dt; if (authority && t <= 0) { phase = "idle"; net.send({ t: "trv", p: phase, s: score }); } }
     },
     draw(ctx) {
-      scoreboard(ctx, score, null, "Trivia");
-      if (phase === "idle" || !cur) return big(ctx, "🧩 Trivia", "press “go” — answer with 1, 2, or 3 fingers");
-      ctx.textAlign = "center"; ctx.fillStyle = "#fff"; outline(ctx, cur.q, W / 2, H * 0.32, 26);
-      cur.o.forEach((o, k) => { const hit = phase === "reveal" && k === cur.a; ctx.font = (hit ? "bold " : "") + "24px system-ui"; ctx.fillStyle = hit ? "#8dffb0" : "#fff"; ctx.textBaseline = "middle"; ctx.fillText(`${k + 1}.  ${o}${hit ? "  ✓" : ""}`, W / 2, H * 0.46 + k * 42); });
-      if (phase === "count") pill(ctx, "answer in… " + Math.ceil(t), W / 2, H * 0.78, 16);
+      scoreboard(ctx, score, phase === "count" ? Math.max(0, t) : null, "Trivia 🧩");
+      if (phase === "idle" || !cur) return big(ctx, "🧩 Trivia", "press “go” — then tap your answer (fingers 1/2/3 work too)");
+      const opts = cur.o.map((o, k) => `${k + 1}. ${o}${phase === "reveal" && k === cur.a ? "  ✅" : ""}`).join("\n");
+      big(ctx, cur.q, opts);
+      if (phase === "reveal") hint(ctx, `${mine === cur.a ? "you got it! 🎉" : "you missed it"} · ${theirs === cur.a ? "partner got it! 🎉" : "partner missed it"}`);
     },
   };
 }

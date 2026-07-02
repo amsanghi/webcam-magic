@@ -782,6 +782,7 @@ function enterPlay(mode) {
   });
   bar.classList.toggle("hidden", !MODE_ACTIONS[mode]);
   clearModeHud();                                         // fresh caption/score bar for the new mode
+  if (host.choices) host.choices(null);
   if (host.chat) host.chat.clear();
   if (host.chat && mi) host.chat.say("sys", mi.nm);
   if (host.director) host.director.intro(mode);           // the host greets + offers one-tap chips
@@ -803,7 +804,9 @@ function buildMenu() {
   for (const cat of CAT_ORDER) {
     const ci = CAT_ORDER.indexOf(cat);   // per-category hue accent (see [data-cat] in style.css)
     const title = document.createElement("div"); title.className = "cat-title"; title.textContent = cat; title.dataset.cat = ci; grid.appendChild(title);
+    let showAll = false; try { showAll = localStorage.getItem("wm_showall") === "1"; } catch (_) {}
     for (const id in MODE_INFO) if (MODE_INFO[id].cat === cat) {
+      if (id === "typing" && !showAll && matchMedia("(pointer: coarse)").matches) continue;   // keyboard game, hidden on touch
       const m = MODE_INFO[id], card = document.createElement("div"); card.className = "card-mode"; card.dataset.cat = ci;
       card.dataset.nm = (m.nm + " " + cat).toLowerCase();
       card.innerHTML = `<div class="ic">${modeIcon(id, cat)}</div><div class="nm">${m.nm}</div>`;
@@ -830,11 +833,28 @@ function filterMenu(q) {
 }
 function surprise() { const ids = Object.keys(MODE_INFO).filter((id) => id !== "free"); navTo("play", ids[Math.floor(Math.random() * ids.length)]); }
 
+// ---- tappable answers: modes call host.choices(["A","B"], cb) — floating pill
+// buttons between the video and the caption. Tap beats gesture on phones; the
+// gesture inputs still work as an alternative. host.choices(null) clears.
+const choiceBar = document.createElement("div");
+choiceBar.id = "choiceBar"; choiceBar.className = "hidden";
+$("stageCol").insertBefore(choiceBar, $("modeCaption"));
+host.choices = (list, cb) => {
+  choiceBar.innerHTML = "";
+  if (!list || !list.length) { choiceBar.classList.add("hidden"); return; }
+  list.forEach((label, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+    b.onclick = () => { bumpInteract(); choiceBar.querySelectorAll("button").forEach((x) => x.classList.toggle("picked", x === b)); try { cb && cb(i); } catch (_) {} };
+    choiceBar.appendChild(b);
+  });
+  choiceBar.classList.remove("hidden");
+};
+
 // ---- "✨ Right now" deck: Cupid-curated picks for this moment, atop the catalog
 const DECK_POOLS = {
   early: ["thisorthat", "wyr", "rps", "pop", "spinner", "photobooth", "trivia", "catch"],
   mid: ["aigame", "dancebattle", "charades", "pictionary", "howwell", "telepathy", "reaction", "photobooth"],
-  late: ["truthdare", "loversdice", "neverhave", "roleplay", "aitruth", "kisscam", "slowdance", "deeptalk"],
+  late: ["truthdare", "loversdice", "never", "roleplay", "kisscam", "slowdance", "deeptalk", "dareroulette"],
 };
 function buildDeck() {
   const deck = $("deck"); if (!deck) return; deck.innerHTML = "";
@@ -902,10 +922,9 @@ if (matchMedia("(orientation: landscape) and (max-height: 520px)").matches) setD
 // full-width canvas content (boards / meters / lyric crawls / centered text)
 // that would tear at the seam — they keep the classic side-by-side view.
 const NO_STACK = new Set([
-  "hockey", "thumbwar", "photobooth", "tictactoe", "connect4", "memory", "trivia",
-  "rhythm", "note", "scream", "typing", "pictionary", "mailbox", "bucket",
-  "karaoke", "dareroulette", "loversdice", "wyr", "never", "oursong",
-  "adventure", "madlibs", "share",
+  "hockey", "thumbwar", "photobooth", "tictactoe", "connect4", "memory",
+  "pictionary", "mailbox", "bucket", "karaoke", "dareroulette", "loversdice",
+  "oursong", "share",
 ]);
 const stackMQ = matchMedia("(orientation: portrait) and (max-width: 820px)");
 let stackPref = true; try { stackPref = localStorage.getItem("wm_stack") !== "0"; } catch (_) {}
@@ -926,6 +945,8 @@ function wakeChrome() { $("play").classList.remove("chrome-idle"); clearTimeout(
 ["pointermove", "pointerdown", "keydown", "touchstart"].forEach((ev) => $("play").addEventListener(ev, wakeChrome, { passive: true }));
 
 $("backToCall").addEventListener("click", () => navTo("play", games.mode || "free"));
+$("moreBtn").addEventListener("click", (e) => { e.stopPropagation(); $("morePop").classList.toggle("hidden"); });
+document.addEventListener("click", (e) => { if (!e.target.closest(".tb-more")) $("morePop").classList.add("hidden"); });
 
 // ✨ AI status pill (menu + play). Shows tier/load state; click loads the model.
 function aiPillText(short) {

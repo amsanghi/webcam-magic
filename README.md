@@ -84,8 +84,8 @@ Menu sections, in order (`CAT_ORDER` in `src/modes/registry.js`):
   Race, Tap Attack.
 - **AI ✨** — Cupid (AI companion), **Cupid's Game** (the AI invents a brand-new gesture mini-game
   on the spot — with a forfeit for the loser), AI Game Master (drives the app), AI Adventure, Mad
-  Libs, and generative Truth-or-Dare / Would-You-Rather / Deep Talk / Date Ideas / Pet Names /
-  Roast & Toast. See "On-device AI" below.
+  Libs, Date Ideas, Pet Names, Roast & Toast, Roleplay, Rap Battle, Cupid Sees. (Truth-or-Dare,
+  Would-You-Rather and Deep Talk live in their home categories — AI-generated there too.)
 - **Couple** — Kiss Cam, Name Mash, Love Calc, Date Spinner, Pictionary, Mailbox, Bucket List,
   Dress-Up, Make a Wish, Hands Up, Love Tap.
 - **Talk & connect 💬** — 36 Questions, Deep Talk, 20 Questions, Two Truths, Story Builder,
