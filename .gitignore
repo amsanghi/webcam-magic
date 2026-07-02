@@ -3,3 +3,5 @@
 *.log
 server/media/models/
 sdnext/
+.env
+*.env

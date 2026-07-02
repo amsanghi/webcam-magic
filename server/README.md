@@ -53,29 +53,32 @@ auto-install is **Homebrew** (it prints the one-liner if you don't have it). Aft
 core services are login agents, so they come back on every boot on their own.
 
 ```bash
-./wm.sh             # up: installs anything missing, then runs it all — uses the LIGHT model by default
-./wm.sh down        # take it all down + free all the RAM
+./wm.sh             # UP: install anything missing + start EVERYTHING (text+vision, tunnel, voice, images)
+./wm.sh down        # DOWN: stop everything + free the RAM (the exact opposite)
+./wm.sh restart     # down, then up
 ./wm.sh status      # what's running + your public URL
 ./wm.sh heavy       # switch to the best text model (pulls dolphin-mixtral:8x7b, ~26 GB, on demand)
 ./wm.sh light       # back to the fast model (dolphin3:8b) — frees the Mac  ← the default
-./wm.sh autostart   # ← run ONCE: makes images auto-start on boot too, so you never run anything again
+./wm.sh autostart   # ← run ONCE: everything (incl. images) boots on its own, forever
 ```
 
-**Light is the default** (`./wm.sh` == `./wm.sh up light`) so the Mac stays usable; heavy is opt-in and
-only then pulls the big model. `SD_DIR=/path`, `SD_CMD=…`, or `WM_NO_INSTALL=1` override the defaults.
-The older `start.sh` / `stop.sh` still work, but `wm.sh` supersedes them.
+**One idempotent command.** `./wm.sh` installs what's missing (brew tools, login agents, the light text
++ vision models, voice tools, and Stable Diffusion cloned to `~/sdnext`), **and** brings up the ngrok
+tunnel — all in one, and it's safe to run when things are already (partly) up. The only prerequisite it
+can't auto-install is **Homebrew** (it prints the one-liner). **Light is the default**; heavy is opt-in.
+`SD_DIR=…`, `SD_CMD=…`, `WM_NO_INSTALL=1` override. `start.sh`/`stop.sh` still work but `wm.sh` supersedes them.
 
-### Setting (or changing) the tunnel — and coexisting with another ngrok tunnel
+### The tunnel is part of `up` (creds in `~/.webcam-magic.env`)
+Set the ngrok domain + token **once**; `up` uses them every time after:
 ```bash
-./wm.sh tunnel <your-domain.ngrok-free.app> <your-authtoken>
+./wm.sh tunnel <your-domain.ngrok-free.app> <your-authtoken>   # persists to ~/.webcam-magic.env, then starts it
 ```
-This bakes the token into **webcam-magic's ngrok agent only** (via `--authtoken`), so it does **not**
-touch the shared `ngrok config` and **won't disturb another ngrok tunnel** you run. Free ngrok allows
-one tunnel *per account/domain*, so if you already run another tunnel (e.g. WatchTogether on your first
-account), **make a second free ngrok account** for webcam-magic — its own authtoken + its own reserved
-domain — and pass those here. Both tunnels then run at once. Point the site once at the new domain
-(`?ai=https://<domain>` or the ✨ pill); it's permanent. `status` shows the tunnel as up **only** when
-webcam-magic's own ngrok is really forwarding `:11435`.
+The token is passed **per-agent** (`--authtoken`), so it does **not** touch the shared `ngrok config` and
+**won't disturb another ngrok tunnel** you run. Free ngrok allows one endpoint *per account/domain*, so if
+you already run another tunnel (e.g. WatchTogether), give webcam-magic a **second free ngrok account** —
+its own authtoken + reserved domain — and both run at once. Creds live in `~/.webcam-magic.env` (never in
+the repo). Point the site once at your domain (`?ai=https://<domain>` or the ✨ pill) — it's permanent, and
+`status` shows the tunnel up **only** when webcam-magic's own ngrok is really forwarding `:11435`.
 
 ## Optional add-ons
 - **Speech-to-text (Whisper):** `brew install whisper-cpp` or a small `faster-whisper` server.
