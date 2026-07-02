@@ -187,6 +187,17 @@ kisses, time) and decides its own move; it speaks natural Hinglish.
 Runs great on a desktop; on iPhone keep to the light tier (Safari's WebGPU memory limit caps model
 size). The static tier is always the floor, so the AI features degrade gracefully everywhere.
 
+## Stacked phone view 📱
+
+On portrait phones the two video halves are **re-composited vertically** at display time —
+you on top, your partner below — so the call nearly fills the screen (640x1440 from the same
+1280x720 logical canvas). Game logic, drawing, and the net protocol are untouched: `app.js`
+blits the two halves onto a second canvas each frame and inverse-maps taps back to logical
+coordinates. Screen-centered banners render once per half (`FX.isStacked()`), and the Chill
+modes draw per-half rings/footers. Modes whose output is a genuinely shared full-width
+drawing (boards, meters, lyric crawls — see `NO_STACK` in `app.js`) automatically fall back
+to the classic side-by-side view. Kill switch: `localStorage.wm_stack = "0"`.
+
 ## Caveats (honest)
 
 - **No TURN server** (STUN only). ~10–20% of strict/symmetric-NAT pairs may fail to establish

@@ -1,6 +1,10 @@
 // chill.js — Chill ambiance modes: slow dance, mood, breathe, karaoke, countdown.
 import { FX, net, host, authority, meIdx, W, H, MID, toCanvas, rnd, pick, clamp, cursor, cursorPx, activeCur, roundRect, pill, outline, fit, hint, scoreboard, big } from "./_shared.js";
 
+// centers to draw "shared" content at: once at screen center normally, once per
+// half in the stacked phone view (where the seam would tear centered drawings)
+const centers = () => (FX.isStacked() ? [W * 0.25, W * 0.75] : [W / 2]);
+
 
 // ---------------- SLOW DANCE (romantic ambient + beat hearts) ------------
 export function slowDanceMode() {
@@ -12,7 +16,7 @@ export function slowDanceMode() {
       const beat = FX.getBeat(); acc += dt * (2 + beat * 12);
       if (acc > 1) { acc = 0; FX.emoji(rnd(0, W), H + 20, rnd(-20, 20), -rnd(40, 95) * (1 + beat), pick(["💗", "💖", "💕", "🤍", "🌹"]), rnd(24, 44) * (1 + beat * 0.5), rnd(3, 5), -28, { vr: 0 }); }
     },
-    draw(ctx) { ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.textAlign = "center"; ctx.fillText("💃  slow dance  🕺  — play some music and sway together", W / 2, H - 26); ctx.restore(); },
+    draw(ctx) { ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.font = FX.isStacked() ? "15px system-ui" : "20px system-ui"; ctx.textAlign = "center"; for (const cx of centers()) ctx.fillText("💃  slow dance  🕺", cx, H - 26); ctx.restore(); },
   };
 }
 
@@ -23,7 +27,7 @@ export function moodMode() {
   return {
     exit() { FX.setTint(255, 110, 90, 0); FX.setVignette(0, false); FX.setVignette(1, false); },
     update(dt) { FX.setTint(255, 110, 90, 0.3); FX.setVignette(0, true); FX.setVignette(1, true); acc += dt; if (acc > 0.5) { acc = 0; FX.emoji(rnd(0, W), H + 20, rnd(-10, 10), -rnd(20, 50), pick(["🕯️", "🌹", "✨", "🥂"]), rnd(22, 38), rnd(4, 6), -20, { vr: 0 }); } },
-    draw(ctx) { ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = "#fff"; ctx.font = "20px system-ui"; ctx.textAlign = "center"; ctx.fillText("🕯️ mood lighting — just the two of you", W / 2, H - 26); ctx.restore(); },
+    draw(ctx) { ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = "#fff"; ctx.font = FX.isStacked() ? "15px system-ui" : "20px system-ui"; ctx.textAlign = "center"; for (const cx of centers()) ctx.fillText("🕯️ mood lighting", cx, H - 26); ctx.restore(); },
   };
 }
 
@@ -38,11 +42,16 @@ export function breathingMode() {
       const total = 12, tt = t % total; let acc = 0, idx = 0, pr = 0;
       for (let i = 0; i < seq.length; i++) { if (tt < acc + seq[i][1]) { idx = i; pr = (tt - acc) / seq[i][1]; break; } acc += seq[i][1]; }
       const scale = idx === 0 ? 0.45 + pr * 0.55 : idx === 1 ? 1 : idx === 2 ? 1 - pr * 0.55 : 0.45;
-      ctx.save(); ctx.translate(W / 2, H / 2); const r = 90 + scale * 170;
-      ctx.fillStyle = "rgba(150,190,255,.15)"; ctx.strokeStyle = "rgba(180,210,255,.9)"; ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "30px system-ui"; ctx.fillText(seq[idx][0], 0, 0); ctx.restore();
-      ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "16px system-ui"; ctx.fillText("breathe together 💙", W / 2, H - 26);
+      // stacked: one ring per half (each of you breathes with your own ring)
+      const half = FX.isStacked() ? 0.62 : 1;
+      for (const cx of centers()) {
+        ctx.save(); ctx.translate(cx, H / 2); const r = (90 + scale * 170) * half;
+        ctx.fillStyle = "rgba(150,190,255,.15)"; ctx.strokeStyle = "rgba(180,210,255,.9)"; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = `${Math.round(30 * half)}px system-ui`; ctx.fillText(seq[idx][0], 0, 0); ctx.restore();
+      }
+      ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "16px system-ui";
+      for (const cx of centers()) ctx.fillText("breathe together 💙", cx, H - 26);
     },
   };
 }
