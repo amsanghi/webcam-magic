@@ -33,6 +33,7 @@ SD_PORT="${SD_PORT:-7860}"
 SD_LOG="/tmp/webcam-magic-sd.log"
 SD_REPO="${SD_REPO:-https://github.com/vladmandic/sdnext}"
 SD_DEFAULT_DIR="${SD_DEFAULT_DIR:-$HOME/sdnext}"
+SD_PYTHON="${SD_PYTHON:-}"   # force SD's venv Python; else auto-pick a torch-supported one (not 3.14+)
 
 # --- probes ----------------------------------------------------------------
 ollama_up() { curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; }
@@ -46,6 +47,12 @@ find_sd() {
   for d in "$HOME/sdnext" "$HOME/stable-diffusion-webui" "$HOME/forge" "$HERE/media/sdnext"; do
     [ -x "$d/webui.sh" ] && { echo "$d"; return; }
   done
+}
+# PyTorch/SD don't support Python 3.14+ yet — pick a supported interpreter for SD's venv.
+pick_python() {
+  [ -n "$SD_PYTHON" ] && { echo "$SD_PYTHON"; return; }
+  for p in python3.12 python3.11 python3.13 python3.10; do command -v "$p" >/dev/null 2>&1 && { echo "$p"; return; }; done
+  echo python3
 }
 
 # --- self-install: bring up anything that's missing (idempotent) -----------
@@ -115,7 +122,13 @@ start_sd() {
   if sd_up; then echo "  ✅ images (SD) already up on :$SD_PORT"; return; fi
   local dir; dir="$(find_sd)"
   if [ -z "$dir" ]; then echo "  – images: no SD install found — see server/media/README.md (skipping)"; return; fi
-  echo "  ▶ starting SD ($dir) on :$SD_PORT … (first launch is slow)"
+  # SD's venv must run a Python PyTorch supports — a 3.14+ venv can't install torch.
+  local vpy="$dir/venv/bin/python3" py; py="$(pick_python)"
+  if [ -x "$vpy" ] && ! "$vpy" -c 'import sys; sys.exit(0 if sys.version_info[:2] < (3,14) else 1)' 2>/dev/null; then
+    echo "  ▶ SD venv on an unsupported Python — rebuilding with $py…"; rm -rf "$dir/venv"
+  fi
+  [ -x "$dir/venv/bin/python3" ] || { echo "  ▶ creating SD venv with $py…"; "$py" -m venv "$dir/venv" >/dev/null 2>&1 || echo "  ⚠ couldn't create venv with $py"; }
+  echo "  ▶ starting SD ($dir) on :$SD_PORT … (first launch downloads torch + a model — slow)"
   ( cd "$dir" && nohup bash ./webui.sh ${SD_CMD:---api --listen --port ${SD_PORT}} >"$SD_LOG" 2>&1 & )
 }
 stop_sd() { pkill -f "webui.sh" 2>/dev/null || true; pkill -f "launch.py" 2>/dev/null || true; }
@@ -228,6 +241,7 @@ case "${1:-up}" in
   heavy)      model_switch heavy ;;
   light)      model_switch light ;;
   autostart)  autostart ;;
+  sd)         start_sd ;;
   tunnel)     configure_ngrok "${2:-${NGROK_DOMAIN:-}}" "${3:-${NGROK_AUTHTOKEN:-}}" ;;
-  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
+  *) echo "usage: ./wm.sh [ up [heavy|light] | down | restart | status | heavy | light | sd | tunnel [<domain> <token>] | autostart ]"; exit 1 ;;
 esac
