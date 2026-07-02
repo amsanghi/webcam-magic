@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>Webcam Magic — gesture & face party for two</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..800;1,9..144,500..800&family=Outfit:wght@400..800&display=swap" />
-<link rel="stylesheet" href="./style.css?v=10" />
+<link rel="stylesheet" href="./style.css?v=11" />
 <!-- redeploy nudge: force a fresh GitHub Pages build -->
 </head>
 <body>
@@ -115,7 +115,6 @@
           <span class="grow"></span>
           <button type="button" id="dockMin" class="icon-btn" data-tip="Tuck Cupid away" aria-label="Minimize chat"><i class="icon" data-ic="minimize"></i></button>
         </div>
-        <div id="actionbar" class="hidden"></div>
         <div id="chatFeed"></div>
         <div id="askBar" class="hidden"><span id="askLabel"></span><button type="button" id="askCancel" class="icon-btn" data-tip="Cancel" data-tip-pos="top" aria-label="Cancel"><i class="icon" data-ic="x"></i></button></div>
         <form id="chatForm" autocomplete="off">
@@ -135,6 +134,7 @@
           <div class="sb-side"><span class="sb-name" id="sbName1">partner</span><span class="sb-score" id="sbScore1">0</span></div>
         </div>
         <div id="stage" data-size="l"><canvas id="canvas" width="1280" height="720"></canvas></div>
+        <div id="actionbar" class="hidden"></div>
         <div id="modeCaption" class="hidden">
           <div class="cap-title" id="capTitle"></div>
           <div class="cap-sub" id="capSub"></div>
